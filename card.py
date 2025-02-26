@@ -1,4 +1,5 @@
 import random
+from utils import log_sensitive
 
 # Global constants for card suits, values, and hand rankings
 SUITS = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
@@ -56,8 +57,18 @@ class Deck:
         """
         Shuffles the deck, randomizing the order of the cards.
         """
-        # random.seed(66)
+        # Log the deck state before shuffling
+        log_sensitive("Deck before shuffling", {
+            "cards": self.cards[:5] + ["..."] + self.cards[-5:] if len(self.cards) > 10 else self.cards
+        })
+        
         random.shuffle(self.cards)
+        
+        # Log partial deck state after shuffling (first few and last few cards)
+        log_sensitive("Deck after shuffling", {
+            "first_cards": self.cards[:5],
+            "last_cards": self.cards[-5:]
+        })
 
     def deal(self) -> Card:
         """

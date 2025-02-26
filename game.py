@@ -8,7 +8,8 @@
 
 from card import Deck, Card
 from hand import Hand
-from utils import print_bold, logger
+from utils import print_bold, logger, log_sensitive
+from ui_helper import GameUI
 
 class Player:
     """
@@ -101,26 +102,42 @@ class PokerGame:
             player.reset_for_round()
         for player in self.players:
             player.hole_cards = [self.deck.deal(), self.deck.deal()]
+            # Log the cards dealt to this player
+            log_sensitive(f"Dealt cards to {player.name}", {
+                "player": player.name,
+                "cards": player.hole_cards,
+                "remaining_deck": len(self.deck.cards)
+            })
 
     def post_blinds(self):
         """
         Post blinds: the player after the dealer posts the small blind, and the next player posts the big blind.
         Update the pot and the current highest bet.
         """
+        GameUI.print_section("Posting Blinds")
+        
         small_blind_player = self.players[(self.dealer_pos + 1) % len(self.players)]
         big_blind_player = self.players[(self.dealer_pos + 2) % len(self.players)]
+        
         try:
             small_blind_player.place_bet(self.small_blind)
-            print(f"{small_blind_player.name} posts small blind: {self.small_blind}")
+            GameUI.print_action(small_blind_player.name, "posts small blind", self.small_blind)
         except ValueError:
-            print(f"{small_blind_player.name} cannot post small blind (insufficient chips).")
+            GameUI.print_error(f"{small_blind_player.name} cannot post small blind (insufficient chips).")
+            logger.warning(f"Player {small_blind_player.name} couldn't post small blind - insufficient chips")
+        
         try:
             big_blind_player.place_bet(self.big_blind)
-            print(f"{big_blind_player.name} posts big blind: {self.big_blind}")
+            GameUI.print_action(big_blind_player.name, "posts big blind", self.big_blind)
         except ValueError:
-            print(f"{big_blind_player.name} cannot post big blind (insufficient chips).")
+            GameUI.print_error(f"{big_blind_player.name} cannot post big blind (insufficient chips).")
+            logger.warning(f"Player {big_blind_player.name} couldn't post big blind - insufficient chips")
+        
         self.pot += self.small_blind + self.big_blind
         self.current_bet = self.big_blind
+        
+        GameUI.print_pot(self.pot)
+        logger.info(f"Blinds posted: small={self.small_blind}, big={self.big_blind}, pot={self.pot}")
 
     def betting_round(self, round_name):
         """
@@ -128,68 +145,63 @@ class PokerGame:
 
         :param round_name: Name of the betting round (e.g., "Pre-flop", "Flop", "Turn", "River").
         """
-        print(f"=== {round_name} Betting Round ===")
-
+        GameUI.print_header(f"{round_name} Betting Round")
+        logger.info(f"Starting {round_name} betting round")
+        
         # For Pre-flop, don't reset the `current_bet` for players who have posted the blinds
         if round_name != "Pre-flop":
             for player in self.players:
                 player.current_bet = 0  # Reset current bet for the current round
                 player.action_taken = False
+            
         active_players = [p for p in self.players if not p.folded and p.chips > 0]  # Remove folded players
         if len(active_players) <= 1:
+            logger.info(f"Betting round {round_name} skipped - only one active player")
             return
-
+        
         # Pre-flop stage starts from the player after the big blind
         if round_name == "Pre-flop":
             current_player_index = (self.dealer_pos + 3) % len(self.players)  # Big blind's next player starts
         else:
-            current_player_index = (self.dealer_pos + 1) % len(self.players)  # Other stages start from the next player after the dealer
-
+            current_player_index = (self.dealer_pos + 1) % len(self.players)  # Start with player after dealer
+        
         while True:
             # Skip folded players
             while self.players[current_player_index].folded:
                 current_player_index = (current_player_index + 1) % len(self.players)  # Skip to next player
-
+            
             player = self.players[current_player_index]
-            print("-" * 40)
-            print(player.name + "'s turn:")
-            print(f"Pot: {self.pot}")
-            print("Community Cards:", self.community_cards)
-            print(f"Your hand: {player.hole_cards}")
-            print(f"Your chips: {player.chips}")
-            print(f"Your total bet: {player.total_bet}")
-            print(f"Your current bet: {player.current_bet}")
-            print(f"Table current bet: {self.current_bet}")
-            print(f"Action taken this round: {player.action_taken}")
-            print("-" * 40)
-
+            GameUI.print_section(f"{player.name}'s Turn")
+            GameUI.print_pot(self.pot)
+            GameUI.print_cards("Community Cards", self.community_cards)
+            GameUI.print_player_info(player.name, player.hole_cards, player.chips, player.current_bet)
+            print(f"Current Table Bet: {self.current_bet}")
+            
             # Allow the player to take action
             valid_action = False
             while not valid_action:
-                action = input(f"Enter action for {player.name} (fold, call, raise [amount], check, all-in): ").strip().lower()
-
+                action = GameUI.prompt_action(player.name)
+                
                 if action == "fold":
                     player.folded = True
-                    # print(f"{player.name} folds.")
-                    print_bold(f"{player.name} folds.")
+                    GameUI.print_action(player.name, "fold")
                     valid_action = True
-
+                    
                 elif action == "call":
                     call_amount = self.current_bet - player.current_bet
                     if call_amount > player.chips:
                         call_amount = player.chips  # All-in if not enough chips
-                        # print(f"{player.name} is all-in with {call_amount}.")
-                        print_bold(f"{player.name} is all-in with {call_amount}.")
+                        GameUI.print_action(player.name, "all-in", call_amount)
+                        logger.info(f"{player.name} forced all-in with {call_amount} when attempting to call")
+                    else:
+                        GameUI.print_action(player.name, "call", call_amount)
                     player.place_bet(call_amount)
                     self.pot += call_amount
-                    # print(f"{player.name} calls {call_amount}.")
-                    print_bold(f"{player.name} calls {call_amount}.")
                     valid_action = True
-
+                    
                 elif action == "check":
                     if player.current_bet == self.current_bet:
-                        # print(f"{player.name} checks.")
-                        print_bold(f"{player.name} checks.")
+                        GameUI.print_action(player.name, "check")
                         valid_action = True
                     else:
                         print("Cannot check, you must call or raise.")
@@ -204,8 +216,7 @@ class PokerGame:
                     player.place_bet(raise_amount)
                     self.pot += raise_amount
                     self.current_bet = total_bet
-                    # print(f"{player.name} raises to {total_bet}.")
-                    print_bold(f"{player.name} raises to {total_bet}.")
+                    GameUI.print_action(player.name, "raise", raise_amount)
                     valid_action = True
 
                 elif action == "all-in":
@@ -213,8 +224,7 @@ class PokerGame:
                     player.place_bet(all_in_amount)
                     self.pot += all_in_amount
                     self.current_bet = max(player.current_bet, self.current_bet)
-                    # print(f"{player.name} goes all-in with {all_in_amount}.")
-                    print_bold(f"{player.name} goes all-in with {all_in_amount}.")
+                    GameUI.print_action(player.name, "all-in", all_in_amount)
                     valid_action = True
 
                 else:
@@ -237,13 +247,23 @@ class PokerGame:
 
         :param number: Number of community cards to deal.
         """
+        # Determine the current stage name
+        stage_name = "Flop" if len(self.community_cards) == 0 else "Turn" if len(self.community_cards) == 3 else "River"
+        GameUI.print_section(f"Dealing the {stage_name}")
+        
+        # Deal the cards
+        new_cards = []
         for _ in range(number):
-            self.community_cards.append(self.deck.deal())
-        print('-' * 40)
-        print(' ')
-        print("Community Cards:", self.community_cards)
-        print(' ')
-        print('-' * 40)
+            card = self.deck.deal()
+            self.community_cards.append(card)
+            new_cards.append(card)
+        
+        GameUI.print_cards(f"New {stage_name} Card{'s' if number > 1 else ''}", new_cards)
+        GameUI.print_cards("All Community Cards", self.community_cards)
+        
+        # Log the dealt cards
+        logger.info(f"Dealt {stage_name}: {new_cards}")
+        logger.info(f"Community cards now: {self.community_cards}")
 
     def showdown(self):
         """
@@ -251,24 +271,37 @@ class PokerGame:
         determine the best combination using Hand.best_hand, and compare hands using Hand.compare_hands.
         Award the pot to the winner (side pot logic not handled here).
         """
+        GameUI.print_header("Showdown")
+        
         active_players = [p for p in self.players if not p.folded]
         if len(active_players) == 1:
             winner = active_players[0]
-            print(f"{winner.name} wins the pot of {self.pot} (all others folded).")
+            GameUI.print_winner(winner.name, self.pot, "(all others folded)")
             winner.chips += self.pot
+            logger.info(f"{winner.name} wins pot of {self.pot} by default (all others folded)")
         else:
-            print("Showdown!")
+            GameUI.print_info("Showdown! Players reveal their cards:")
+            GameUI.print_cards("Community Cards", self.community_cards)
+            # Display each player's hand and best combination
             for player in active_players:
                 best = Hand.best_hand(player.hole_cards, self.community_cards)
-                print(f"{player.name}'s best hand is {best.evaluate_hand()} with {player.hole_cards} + {self.community_cards}")
+                hand_desc = best.evaluate_hand()
+                GameUI.print_player_info(player.name, player.hole_cards, player.chips, player.current_bet)
+                GameUI.print_info(f"  Best hand: {hand_desc}")
                 player.best_hand = best  # Store the best hand for comparison
+                logger.info(f"{player.name}'s best hand is {hand_desc} with {player.hole_cards} + {self.community_cards}")
+            
+            # Determine the winner
             best_player = active_players[0]
             for player in active_players[1:]:
                 result = Hand.compare_hands(best_player.best_hand, player.best_hand)
                 if result == "Player 2 wins":
                     best_player = player
-            print(f"{best_player.name} wins the pot of {self.pot} with {best_player.best_hand.evaluate_hand()}!")
+                
+            # Award the pot
             best_player.chips += self.pot
+            GameUI.print_winner(best_player.name, self.pot, best_player.best_hand.evaluate_hand())
+            logger.info(f"{best_player.name} won showdown with {best_player.best_hand.evaluate_hand()}, winning {self.pot} chips")
 
     def play_round(self):
         """
@@ -306,13 +339,32 @@ class PokerGame:
         After each round, update the dealer position and remove players with zero chips.
         """
         round_number = 1
+        logger.info(f"Starting new game with {len(self.players)} players")
+        
         while len(self.players) > 1:
-            print("=" * 40)
-            print(f"Starting Round {round_number}")
+            GameUI.print_header(f"Round {round_number}")
+            logger.info(f"Starting Round {round_number}")
+            
+            # Log dealer position
+            dealer_name = self.players[self.dealer_pos].name
+            logger.info(f"Dealer: {dealer_name}")
+            GameUI.print_info(f"Dealer: {dealer_name}")
+            
+            # Play the round
             self.play_round()
+            
+            # End of round cleanup
             self.remove_broke_players()
-            for player in self.players:
-                print(f"{player.name}: {player.chips} chips")
+            GameUI.print_round_summary(self.players)
             self.rotate_dealer()
             round_number += 1
-        print(f"Game over! Winner is {self.players[0].name} with {self.players[0].chips} chips.")
+            
+            # Pause between rounds if there are still multiple players
+            if len(self.players) > 1:
+                GameUI.prompt_next_round()
+        
+        # Game over
+        if self.players:
+            GameUI.print_game_over(self.players[0].name, self.players[0].chips)
+        else:
+            GameUI.print_error("Game ended with no players remaining!")
