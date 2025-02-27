@@ -15,17 +15,11 @@ if __name__ == "__main__":
         GameUI.print_error("Invalid input. Using default of 4 players.")
         num_players = 4
     
-    default_names = ["Alice", "Bob", "Carl", "David", "Eve", "Frank", "Grace", "Heidi", "Ivan", "Judy"]
     starting_chips = 1000
     
     players = []
     for i in range(num_players):
-        use_default = input(f"Use default name '{default_names[i]}' for Player {i+1}? (y/n): ").lower() == 'y'
-        if use_default:
-            name = default_names[i]
-        else:
-            name = input(f"Enter name for Player {i+1}: ")
-        
+        name = f"Player {i+1}"
         players.append(Player(name, starting_chips))
         logger.info(f"Added player: {name} with {starting_chips} chips")
     
