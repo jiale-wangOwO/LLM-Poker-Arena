@@ -10,6 +10,7 @@ from card import Deck, Card
 from hand import Hand
 from utils import print_bold, logger, log_sensitive
 from ui_helper import GameUI
+from datetime import datetime
 
 class Player:
     """
@@ -29,6 +30,7 @@ class Player:
         self.current_bet = 0   # Bet in this betting round
         self.total_bet = 0     # Total bet during the game round
         self.action_taken = False # Whether the player acted in the current betting round
+        self.action_history = []  # List of actions taken by the player in this round
 
     def reset_for_round(self):
         """
@@ -39,6 +41,7 @@ class Player:
         self.current_bet = 0
         self.total_bet = 0     # Total bet during the game
         self.action_taken = False
+        self.action_history = []  # Reset action history for new round
 
     def place_bet(self, amount):
         """
@@ -52,6 +55,16 @@ class Player:
         self.chips -= amount
         self.current_bet += amount
         self.total_bet += amount
+
+    def record_action(self, betting_round, action, amount=None):
+        """Record an action taken by the player during a betting round"""
+        action_record = {
+            "round": betting_round,
+            "action": action,
+            "amount": amount,
+            "timestamp": datetime.now()
+        }
+        self.action_history.append(action_record)
 
 
 class PokerGame:
@@ -122,6 +135,7 @@ class PokerGame:
         try:
             small_blind_player.place_bet(self.small_blind)
             GameUI.print_action(small_blind_player.name, "posts small blind", self.small_blind)
+            small_blind_player.record_action("Pre-flop", "post small blind", self.small_blind)
         except ValueError:
             GameUI.print_error(f"{small_blind_player.name} cannot post small blind (insufficient chips).")
             logger.warning(f"Player {small_blind_player.name} couldn't post small blind - insufficient chips")
@@ -129,6 +143,7 @@ class PokerGame:
         try:
             big_blind_player.place_bet(self.big_blind)
             GameUI.print_action(big_blind_player.name, "posts big blind", self.big_blind)
+            big_blind_player.record_action("Pre-flop", "post big blind", self.big_blind)
         except ValueError:
             GameUI.print_error(f"{big_blind_player.name} cannot post big blind (insufficient chips).")
             logger.warning(f"Player {big_blind_player.name} couldn't post big blind - insufficient chips")
@@ -171,11 +186,9 @@ class PokerGame:
                 current_player_index = (current_player_index + 1) % len(self.players)  # Skip to next player
             
             player = self.players[current_player_index]
-            GameUI.print_section(f"{player.name}'s Turn")
-            GameUI.print_pot(self.pot)
-            GameUI.print_cards("Community Cards", self.community_cards)
-            GameUI.print_player_info(player.name, player.hole_cards, player.chips, player.current_bet)
-            print(f"Current Table Bet: {self.current_bet}")
+            
+            # Display comprehensive game state
+            self.display_game_state(current_player_index, round_name)
             
             # Allow the player to take action
             valid_action = False
@@ -185,6 +198,7 @@ class PokerGame:
                 if action == "fold":
                     player.folded = True
                     GameUI.print_action(player.name, "fold")
+                    player.record_action(round_name, "fold")
                     valid_action = True
                     
                 elif action == "call":
@@ -192,9 +206,11 @@ class PokerGame:
                     if call_amount > player.chips:
                         call_amount = player.chips  # All-in if not enough chips
                         GameUI.print_action(player.name, "all-in", call_amount)
+                        player.record_action(round_name, "all-in", call_amount)
                         logger.info(f"{player.name} forced all-in with {call_amount} when attempting to call")
                     else:
                         GameUI.print_action(player.name, "call", call_amount)
+                        player.record_action(round_name, "call", call_amount)
                     player.place_bet(call_amount)
                     self.pot += call_amount
                     valid_action = True
@@ -202,6 +218,7 @@ class PokerGame:
                 elif action == "check":
                     if player.current_bet == self.current_bet:
                         GameUI.print_action(player.name, "check")
+                        player.record_action(round_name, "check")
                         valid_action = True
                     else:
                         print("Cannot check, you must call or raise.")
@@ -217,6 +234,7 @@ class PokerGame:
                     self.pot += raise_amount
                     self.current_bet = total_bet
                     GameUI.print_action(player.name, "raise", raise_amount)
+                    player.record_action(round_name, "raise", raise_amount)
                     valid_action = True
 
                 elif action == "all-in":
@@ -225,6 +243,7 @@ class PokerGame:
                     self.pot += all_in_amount
                     self.current_bet = max(player.current_bet, self.current_bet)
                     GameUI.print_action(player.name, "all-in", all_in_amount)
+                    player.record_action(round_name, "all-in", all_in_amount)
                     valid_action = True
 
                 else:
@@ -240,6 +259,35 @@ class PokerGame:
             # If all bets are equal and all active players have taken action, end the round
             if len(set(bets)) == 1 and (all(p.action_taken for p in active_players if not p.folded)):
                 break
+
+    def display_game_state(self, current_player_index, round_name):
+        """Display comprehensive game state when it's a player's turn"""
+        player = self.players[current_player_index]
+        position = self.get_player_position(current_player_index)
+        
+        GameUI.print_section(f"{player.name}'s Turn - {position}")
+        GameUI.print_info(f"Current Round: {round_name}")
+        GameUI.print_pot(self.pot)
+        GameUI.print_cards("Community Cards", self.community_cards)
+        GameUI.print_player_info(player.name, player.hole_cards, player.chips, player.current_bet)
+        print(f"Current Table Bet: {self.current_bet}")
+        
+        # Display opponent information
+        GameUI.print_section("Opponent Information")
+        for i, opp in enumerate(self.players):
+            if opp != player and not opp.folded:
+                opp_position = self.get_player_position(i)
+                print(f"{opp.name} ({opp_position}): Chips: {opp.chips}, Current Bet: {opp.current_bet}")
+                
+                # Show opponent action history
+                if opp.action_history:
+                    print(f"  Action History:")
+                    for action in opp.action_history:
+                        if action["amount"]:
+                            print(f"    {action['round']}: {action['action']} {action['amount']}")
+                        else:
+                            print(f"    {action['round']}: {action['action']}")
+                print()
 
     def deal_community_cards(self, number):
         """
@@ -368,3 +416,18 @@ class PokerGame:
             GameUI.print_game_over(self.players[0].name, self.players[0].chips)
         else:
             GameUI.print_error("Game ended with no players remaining!")
+
+    def get_player_position(self, player_index):
+        """Return the player's position name based on their index relative to dealer"""
+        if player_index == self.dealer_pos:
+            return "Dealer (BTN)"
+        elif player_index == (self.dealer_pos + 1) % len(self.players):
+            return "Small Blind (SB)"
+        elif player_index == (self.dealer_pos + 2) % len(self.players):
+            return "Big Blind (BB)"
+        else:
+            relative_pos = (player_index - self.dealer_pos) % len(self.players)
+            positions = ["UTG", "UTG+1", "MP", "MP+1", "CO"]
+            if relative_pos - 3 < len(positions):
+                return positions[relative_pos - 3]
+            return f"Position {relative_pos}"
