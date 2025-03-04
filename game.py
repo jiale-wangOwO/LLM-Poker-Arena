@@ -11,12 +11,13 @@ from hand import Hand
 from utils import print_bold, logger, log_sensitive
 from ui_helper import GameUI
 from datetime import datetime
+from ai_helper import get_ai_action
 
 class Player:
     """
     Player class containing player name, chip count, private cards, and current betting status.
     """
-    def __init__(self, name, chips):
+    def __init__(self, name, chips, is_ai=False):
         """
         Initialize the player object.
 
@@ -26,6 +27,7 @@ class Player:
         self.name = name
         self.chips = chips
         self.hole_cards = []   # Private cards
+        self.is_ai = is_ai
         self.folded = False    # Has the player folded in this round?
         self.current_bet = 0   # Bet in this betting round
         self.total_bet = 0     # Total bet during the game round
@@ -193,7 +195,29 @@ class PokerGame:
             # Allow the player to take action
             valid_action = False
             while not valid_action:
-                action = GameUI.prompt_action(player.name)
+                if player.is_ai:
+                    # Construct game_state with all available information.
+                    game_state = {
+                        "community_cards": self.community_cards,
+                        "pot": self.pot,
+                        "current_bet": self.current_bet,
+                        "round": round_name,
+                        "your_position": self.get_player_position(current_player_index),
+                        "opponents": [{
+                            "name": opp.name,
+                            "position": self.get_player_position(i),
+                            "chips": opp.chips,
+                            "current_bet": opp.current_bet,
+                            "action_history": opp.action_history,
+                            "folded": opp.folded
+                        } for i, opp in enumerate(self.players) if opp != player]
+                    }
+                    # Get AI's decision
+                    action = get_ai_action(player, game_state)
+                else:
+                    # For human players, prompt for input (assuming GameUI.prompt_action exists)
+                    action = GameUI.prompt_action(player.name)
+                
                 
                 if action == "fold":
                     player.folded = True
@@ -273,7 +297,7 @@ class PokerGame:
         print(f"Current Table Bet: {self.current_bet}")
         
         # Display opponent information
-        GameUI.print_section("Opponent Information")
+        GameUI.print_info("\nOpponent Information:\n")
         for i, opp in enumerate(self.players):
             if opp != player and not opp.folded:
                 opp_position = self.get_player_position(i)

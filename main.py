@@ -6,22 +6,14 @@ if __name__ == "__main__":
     GameUI.clear_screen()
     GameUI.print_header("Texas Hold'em Poker Game", 80)
     
-    try:
-        num_players = int(input("Enter number of players (2-10): "))
-        if num_players < 2 or num_players > 10:
-            GameUI.print_error("Invalid number of players. Using default of 4 players.")
-            num_players = 4
-    except ValueError:
-        GameUI.print_error("Invalid input. Using default of 4 players.")
-        num_players = 4
-    
+    num_players = 4
     starting_chips = 1000
-    
+
     players = []
-    for i in range(num_players):
-        name = f"Player {i+1}"
-        players.append(Player(name, starting_chips))
-        logger.info(f"Added player: {name} with {starting_chips} chips")
+    players.append(Player("User", starting_chips, is_ai=False))  # Human player
+    for i in range(1, 4):
+        players.append(Player(f"AI Player {i}", starting_chips, is_ai=True))
+
     
     # Initialize and start the game
     small_blind = 10

@@ -13,6 +13,7 @@ def setup_logger():
     """Configure and return the logger instance."""
     logger = logging.getLogger('TexasHoldem')
     logger.setLevel(logging.DEBUG)  # Log level, adjust as needed (DEBUG for development, INFO for production)
+    logger.propagate = False  # Add this line to prevent propagation
     
     # Ensure logs directory exists and get path
     logs_dir = ensure_logs_directory()
