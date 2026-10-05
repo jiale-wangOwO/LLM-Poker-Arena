@@ -15,12 +15,16 @@ The rules engine is a from-scratch rewrite: correct betting closure, real side
 pots, split pots, heads-up blind order, all-in run-outs and strict chip
 conservation.
 
-![The web table](docs/screenshot.png)
+![The web table](docs/01-table.png)
 
 *The browser table: four model-driven seats, the felt with the board and each
 player's chips, and a numbered action rail on the right carrying every decision
 with the reasoning behind it. God mode is on here, so the hole cards are
 readable.*
+
+> **Landing page:** <https://jiale-wangOwO.github.io/LLM-Poker-Arena/> — what the
+> project is, with screenshots. The game itself runs locally (see below): it
+> needs a Python process, so it cannot run on GitHub Pages.
 
 ```
 python main.py --demo                    # watch 3 personas play, no API key needed
