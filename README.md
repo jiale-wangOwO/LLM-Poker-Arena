@@ -1,5 +1,10 @@
 # LLM Poker Arena
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-784%20passing-brightgreen.svg)](#tests)
+[![Engine deps: none](https://img.shields.io/badge/engine%20deps-stdlib%20only-informational.svg)](#architecture)
+
 Texas Hold'em where every AI opponent is a different *character* played by a
 language model.  Seven hand-written personas -- a maths-first grinder, a
 hyper-aggressive maniac, an ultra-tight nit, a deceptive trickster, a sticky
@@ -601,5 +606,30 @@ real VPIP target.  Run `tools/persona_report.py` to confirm the range.
 
 ## License
 
-No license file was included with the original project; add one before
-distributing.
+Apache License 2.0 -- see [LICENSE](LICENSE). You may use, modify and
+redistribute this commercially, provided you keep the copyright notice and state
+what you changed. The license also grants a patent license, which matters if you
+build on the evaluator.
+
+Third-party dependencies keep their own licenses: `openai`, `rich`, `flask` and
+`pytest` are all permissively licensed (MIT/BSD/Apache), and nothing here is
+copied from them.
+
+## Contributing
+
+Issues and pull requests are welcome. A few things make a change much easier to
+accept:
+
+* **Run the audits, not just the tests.** `pytest` covers behaviour;
+  `tools/fuzz_engine.py` and `tools/verify_evaluator.py` cover the rules. The
+  engine bugs found so far were all found by the fuzzers rather than by a
+  hand-written test.
+* **Keep the engine dependency-free.** `pokerarena/engine.py`, `cards.py`,
+  `pot.py` and `strength.py` use only the standard library, and that is
+  deliberate: the rules layer should be importable and testable anywhere.
+* **When you touch the prompt, update `HeuristicTransport` too.** The offline
+  brain parses the same prompt the models read, so a prompt rewrite that drops a
+  field can silently change how it plays (that has already happened once -- see
+  `_parse_opponents`).
+* **Never let a display setting reach a prompt.** God mode is a viewing switch;
+  `tests/test_god_mode_personas.py` asserts the firewall holds.
