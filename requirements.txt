@@ -1,0 +1,13 @@
+# Runtime dependencies for LLM Poker Arena.
+#
+# The *engine* (cards, evaluation, pots, table state) and the offline bot use
+# only the Python standard library.  These are needed for the LLM seats, the
+# terminal UI and the web UI.
+
+openai>=1.30.0      # LLM seats (any OpenAI-compatible endpoint)
+rich>=13.7.0        # terminal table rendering
+flask>=3.0.0        # browser table (python -m pokerarena.web)
+
+# Development / tests
+pytest>=8.0.0
+websocket-client>=1.7.0   # only for tools/cdp.py (headless-Chrome UI checks)

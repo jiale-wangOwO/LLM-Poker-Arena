@@ -1,84 +1,76 @@
-import random
-from utils import log_sensitive
+"""Compatibility shim for the original ``card.py`` module.
 
-# Global constants for card suits, values, and hand rankings
-SUITS = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
-VALUES_ORDER = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
-HAND_RANKINGS = ["High Card", "One Pair", "Two Pair", "Three of a Kind", "Straight", "Flush", 
-                 "Full House", "Four of a Kind", "Straight Flush", "Royal Flush"]
+The real implementation now lives in :mod:`pokerarena.cards`.  This shim keeps
+``from card import Card, Deck`` (and the old constant names) working so existing
+scripts and tests do not break.
+"""
+
+from __future__ import annotations
+
+from pokerarena.cards import (  # noqa: F401
+    CATEGORY_NAMES,
+    Deck,
+    HandResult,
+    RANKS,
+    SUITS,
+    Card,
+    ascii_suits,
+    best_five,
+    compare,
+    describe,
+    evaluate,
+    evaluate5,
+    format_cards,
+    make_deck,
+)
+
+# The original module exposed human-readable suit names and T-for-ten ranks.
+SUITS_LEGACY = ["Hearts", "Diamonds", "Clubs", "Spades"]
+VALUES_ORDER_LEGACY = list(RANKS)
+HAND_RANKINGS = list(CATEGORY_NAMES)
+
+#: Old names kept as aliases.
+SUITS_LIST = SUITS_LEGACY
+VALUES_ORDER = VALUES_ORDER_LEGACY
 
 
-class Card:
+def __getattr__(name: str):
+    """Serve ``from card import *``-style access to legacy names lazily.
+
+    The original module and ``hand.py`` were independent, but the old tests do
+    ``from card import *`` and then use ``Hand``.  Importing lazily here avoids a
+    module-level circular import between the two shims.
     """
-    Represents a standard playing card in a deck.
-    
-    Attributes:
-        value (str): The rank of the card ('2' to 'A').
-        suit (str): The suit of the card ('Hearts', 'Diamonds', 'Clubs', 'Spades').
-    """
-    def __init__(self, value: str, suit: str):
-        """
-        Initializes a Card object with a rank and suit.
+    if name == "Hand":
+        from hand import Hand  # noqa: PLC0415
 
-        Args:
-            value (str): The rank of the card (must be in VALUES_ORDER, e.g., '2', 'A').
-            suit (str): The suit of the card (must be in SUITS, e.g., 'Hearts', 'Spades').
-        """
-        self.value = value
-        self.suit = suit
-
-    def __repr__(self) -> str:
-        """
-        Returns a readable string representation of the card.
-
-        Returns:
-            str: A formatted string like "<value> of <suit>".
-        """
-        return f"{self.value} of {self.suit}"
-    
-
-class Deck:
-    """
-    Represents a deck of standard playing cards.
-
-    This class provides methods to generate, shuffle, and deal cards from the deck.
-    
-    Attributes:
-        cards (list[Card]): A list of Card objects representing the deck.
-    """
-    def __init__(self):
-        """
-        Initializes the deck with 52 cards and shuffles them.
-        """
-        self.cards = [Card(value, suit) for suit in SUITS for value in VALUES_ORDER]
-        self.shuffle()
-
-    def shuffle(self):
-        """
-        Shuffles the deck, randomizing the order of the cards.
-        """
-        # Log the deck state before shuffling
-        log_sensitive("Deck before shuffling", {
-            "cards": self.cards[:5] + ["..."] + self.cards[-5:] if len(self.cards) > 10 else self.cards
-        })
-        
-        random.shuffle(self.cards)
-        
-        # Log partial deck state after shuffling (first few and last few cards)
-        log_sensitive("Deck after shuffling", {
-            "first_cards": self.cards[:5],
-            "last_cards": self.cards[-5:]
-        })
-
-    def deal(self) -> Card:
-        """
-        Deals a card from the top of the deck.
-
-        Returns:
-            Card: The dealt Card object.
-        """
-        return self.cards.pop()
-        # Example usage of the Deck class
+        return Hand
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | {"Hand"})
 
+
+__all__ = [
+    "CATEGORY_NAMES",
+    "Card",
+    "Deck",
+    "HAND_RANKINGS",
+    "Hand",
+    "HandResult",
+    "RANKS",
+    "SUITS",
+    "SUITS_LEGACY",
+    "SUITS_LIST",
+    "VALUES_ORDER",
+    "VALUES_ORDER_LEGACY",
+    "ascii_suits",
+    "best_five",
+    "compare",
+    "describe",
+    "evaluate",
+    "evaluate5",
+    "format_cards",
+    "make_deck",
+]

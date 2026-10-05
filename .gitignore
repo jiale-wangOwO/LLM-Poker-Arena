@@ -1,5 +1,22 @@
 __pycache__/
-test/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.pytest_tmp/
 .vscode/
+.idea/
+.venv/
+venv/
+
+# Secrets -- never commit real keys.  Commit .env.example instead.
+.env
+
+# Runtime output
 logs/
 *.log
+arena_*.json
+
+# Operator-defined state.  Both hold local configuration and, in the case of
+# providers.json, live API keys.
+providers.json
+personas.json

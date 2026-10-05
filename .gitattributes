@@ -1,0 +1,14 @@
+# Normalise line endings so the repository stays consistent regardless of the
+# platform a contributor happens to use.
+* text=auto eol=lf
+
+# Windows batch/PowerShell helpers, if any are ever added, want CRLF.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

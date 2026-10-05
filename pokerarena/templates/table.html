@@ -1,0 +1,2183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poker Arena</title>
+<style>
+  :root {
+    --bg: #0c1016;
+    --surface: #141a22;
+    --surface-2: #1a222c;
+    --surface-3: #212b37;
+    --line: #222b36;
+    --line-soft: #1a222c;
+    --felt-1: #1d6f4c;
+    --felt-2: #0f4630;
+    --rail: #3b2a1c;
+    --gold: #e3b566;
+    --ink: #e7eef5;
+    --dim: #8b98a6;
+    --faint: #5a6875;
+    --red: #ef6f66;
+    --red-dim: #7a2f2b;
+    --green: #58d46a;
+    --green-dim: #1e5c2c;
+    --blue: #6cb6ff;
+    --violet: #b98cff;
+    --radius: 12px;
+    --rail-w: 372px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink); overflow: hidden;
+    font: 13px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #2a3542; border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: #38465a; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------------- shell: table left, history right ---------------- */
+  #shell {
+    display: grid; grid-template-columns: minmax(0,1fr) var(--rail-w);
+    grid-template-rows: 48px minmax(0,1fr); height: 100vh;
+  }
+  #bar { grid-column: 1 / -1; }
+
+  /* ---------------- top bar ---------------- */
+  #bar {
+    display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  #brand { font-weight: 700; letter-spacing: .2px; white-space: nowrap; }
+  #brand span { color: var(--gold); }
+  .meta { display: flex; align-items: center; gap: 11px; color: var(--dim); font-size: 12px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .grow { flex: 1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; }
+  .dot.bad { background: var(--red); }
+  .dot.paused { background: var(--gold); }
+
+  .btn {
+    background: var(--surface-2); border: 1px solid #2c3743; border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; font-size: 12.5px; font-weight: 500;
+    white-space: nowrap; transition: background .12s, border-color .12s, color .12s, filter .12s;
+  }
+  .btn:hover:not(:disabled) { background: #232e3b; border-color: #3c4b5b; }
+  .btn:disabled { opacity: .38; cursor: not-allowed; }
+  .btn.primary { background: var(--gold); border-color: var(--gold); color: #241a08; font-weight: 700; }
+  .btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; }
+  .btn.sm { padding: 4px 9px; font-size: 12px; }
+  .btn.danger { color: var(--red); border-color: #43272a; }
+  .btn.danger:hover:not(:disabled) { background: #2a191b; }
+  .toggle {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim);
+    cursor: pointer; user-select: none; padding: 5px 10px; border-radius: 8px;
+    border: 1px solid transparent; transition: all .12s;
+  }
+  .toggle:hover { border-color: #2c3743; }
+  .toggle input { accent-color: var(--gold); cursor: pointer; margin: 0; }
+  .toggle.on { color: var(--gold); border-color: #3d3320; background: #1e1a12; }
+
+  /* ---------------- stage ---------------- */
+  #stage {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    min-height: 0; padding: 20px;
+    background: radial-gradient(85% 75% at 50% 45%, #0e1a18 0%, var(--bg) 72%);
+  }
+  #felt {
+    position: relative; width: min(100%, 940px); aspect-ratio: 16 / 9.4;
+    border-radius: 50% / 45%;
+    background: radial-gradient(ellipse at 50% 38%, var(--felt-1), var(--felt-2) 82%);
+    border: 10px solid var(--rail);
+    box-shadow: inset 0 0 70px rgba(0,0,0,.52), 0 20px 55px rgba(0,0,0,.6);
+  }
+  #felt::after {
+    content: ""; position: absolute; inset: 13px; border-radius: 50% / 45%;
+    border: 1px solid rgba(255,255,255,.07); pointer-events: none;
+  }
+
+  #centre {
+    position: absolute; left: 50%; top: 45%; transform: translate(-50%,-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 2;
+    text-align: center; pointer-events: none;
+  }
+  #street { font-size: 10px; letter-spacing: 2.6px; text-transform: uppercase; color: rgba(255,255,255,.5); }
+  #board { display: flex; gap: 6px; }
+  #potline { font-size: 12px; color: rgba(255,255,255,.6); }
+  #potline b { color: var(--gold); font-size: 21px; font-variant-numeric: tabular-nums; }
+  #potline i { font-style: normal; color: rgba(255,255,255,.4); }
+
+  /* ---------------- end-of-hand result ---------------- */
+  #resultPanel {
+    position: absolute; left: 50%; top: 45%; transform: translate(-50%,-50%) scale(.94);
+    z-index: 20; display: none; flex-direction: column; gap: 7px; min-width: 250px;
+    padding: 14px 18px; border-radius: 14px; cursor: pointer; text-align: center;
+    background: rgba(8,12,17,.94); border: 1px solid var(--gold);
+    box-shadow: 0 0 0 5px rgba(0,0,0,.35), 0 18px 50px rgba(0,0,0,.7);
+    backdrop-filter: blur(6px); opacity: 0; transition: opacity .18s, transform .18s;
+  }
+  #resultPanel.on { display: flex; opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  .rp-head { display: flex; align-items: baseline; justify-content: center; gap: 9px; }
+  .rp-title { font-size: 15px; font-weight: 700; color: var(--gold); letter-spacing: .2px; }
+  .rp-pot {
+    font-size: 13px; font-weight: 700; color: #241a08; background: var(--gold);
+    border-radius: 20px; padding: 1px 9px; font-variant-numeric: tabular-nums;
+  }
+  .rp-board { display: flex; gap: 4px; justify-content: center; margin-top: 2px; }
+  .rp-row { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 12px; }
+  .rp-name { color: var(--ink); font-weight: 600; min-width: 46px; text-align: right; }
+  .rp-cards { display: flex; gap: 3px; }
+  .rp-hand { color: var(--dim); font-size: 11px; min-width: 80px; text-align: left; }
+  .rp-none { font-size: 11.5px; color: var(--faint); font-style: italic; }
+  .rp-foot { font-size: 10.5px; color: var(--faint); margin-top: 2px; }
+  .rp-count {
+    display: block; height: 2px; border-radius: 2px; background: #2b3743;
+    margin-top: 7px; overflow: hidden;
+  }
+  .rp-count > i { display: block; height: 100%; background: var(--gold); width: 100%; }
+
+  /* A small always-there record of the previous hand, so the result is not
+     something you had to catch in a few seconds. */
+  #lastHand {
+    position: absolute; right: 14px; bottom: 14px; z-index: 12; display: none;
+    max-width: 240px; padding: 8px 11px; border-radius: 10px; cursor: pointer;
+    background: rgba(11,16,22,.9); border: 1px solid #2b3743; text-align: left;
+    box-shadow: 0 6px 18px rgba(0,0,0,.4);
+  }
+  #lastHand.on { display: block; }
+  #lastHand .lh-h {
+    font-size: 9.5px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--faint); margin-bottom: 3px;
+  }
+  #lastHand .lh-t { font-size: 12px; color: var(--ink); font-weight: 600; }
+  #lastHand .lh-t b { color: var(--gold); }
+  #lastHand .lh-d { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  #lastHand .lh-c { display: flex; gap: 3px; margin-top: 5px; align-items: center; flex-wrap: wrap; }
+  #lastHand .lh-n { font-size: 10.5px; color: var(--faint); margin-right: 3px; }
+
+  /* ---------------- eliminated players ---------------- */
+  #outRail {
+    position: absolute; left: 14px; bottom: 14px; z-index: 12;
+    display: none; flex-direction: column; gap: 5px; max-width: 190px;
+  }
+  #outRail.on { display: flex; }
+  #outRail .hdr {
+    font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--faint); margin-bottom: 1px;
+  }
+  .outChip {
+    display: flex; align-items: center; gap: 7px; font-size: 11.5px;
+    background: rgba(11,16,22,.9); border: 1px solid #2b3743; border-radius: 20px;
+    padding: 3px 10px 3px 4px; color: var(--dim);
+  }
+  .outChip .av {
+    width: 19px; height: 19px; border-radius: 50%; flex: none;
+    background: #232e3b; color: var(--faint); display: flex;
+    align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+  }
+  .outChip .nm { color: var(--dim); text-decoration: line-through; text-decoration-color: #4a5765; }
+
+  .card {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #fbfcfd; color: #12181f; border-radius: 5px; font-weight: 700;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    box-shadow: 0 1px 4px rgba(0,0,0,.45); flex: none; line-height: 1;
+    position: relative;
+  }
+  .card.r { color: #cf3b30; }
+  /* Card back: a woven diagonal lattice in the felt's own palette, so the backs
+     read as cards at a glance without competing with the table. */
+  .card.back {
+    background:
+      repeating-linear-gradient(45deg,
+        rgba(255,255,255,.09) 0 2px, transparent 2px 6px),
+      repeating-linear-gradient(-45deg,
+        rgba(255,255,255,.09) 0 2px, transparent 2px 6px),
+      linear-gradient(150deg, #26456b, #1b2f4a 60%, #16263c);
+    border: 1px solid #3d5c86;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.07), 0 1px 4px rgba(0,0,0,.45);
+    color: transparent;
+  }
+  .card.back::after {
+    content: ""; position: absolute; inset: 3px; border-radius: 3px;
+    border: 1px solid rgba(255,255,255,.16);
+  }
+  .card.empty { background: #1f2c35; color: #3a4a56; box-shadow: none; }
+  .card.xs { width: 20px; height: 28px; font-size: 10px; border-radius: 4px; }
+  .card.sm { width: 27px; height: 38px; font-size: 13px; }
+  .card.md { width: 38px; height: 53px; font-size: 17px; }
+  .card.lg { width: 47px; height: 65px; font-size: 21px; }
+
+  /* ---------------- seats ---------------- */
+  .seat {
+    position: absolute; width: 146px; transform: translate(-50%,-50%);
+    background: rgba(11,16,22,.92); border: 1px solid #2a3542; border-radius: 10px;
+    padding: 7px 9px; z-index: 3; cursor: pointer; text-align: left;
+    transition: border-color .15s, box-shadow .15s, opacity .15s, background .15s;
+  }
+  .seat:hover { border-color: var(--blue); }
+  .seat.is-actor { border-color: var(--green); box-shadow: 0 0 0 1px rgba(88,212,106,.35), 0 0 20px rgba(88,212,106,.2); }
+  .seat.is-out { opacity: .38; }
+  .seat.is-winner { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(227,181,102,.4); }
+  .seat.is-me { border-color: #2f6f9e; }
+  .seat.is-viewing { box-shadow: 0 0 0 2px rgba(227,181,102,.45); }
+  .seat.is-empty {
+    border-style: dashed; border-color: #2b3745; background: rgba(11,16,22,.55);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 116px; height: 62px; padding: 0; gap: 1px;
+  }
+  .seat.is-empty:hover { border-color: var(--green); background: rgba(20,45,32,.7); }
+  .seat.is-empty .plus { font-size: 18px; line-height: 1; color: #46555f; }
+  .seat.is-empty:hover .plus { color: var(--green); }
+  .seat.is-empty .lbl { font-size: 10px; color: var(--faint); letter-spacing: .4px; }
+  .seat.is-empty:hover .lbl { color: var(--green); }
+  .seat .r1 { display: flex; align-items: baseline; gap: 6px; }
+  .seat .nm { font-weight: 600; font-size: 12.5px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seat .st { font-size: 12px; color: var(--green); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .seat .r2 { display: flex; align-items: center; gap: 5px; margin-top: 1px; min-height: 12px; }
+  .seat .pos { font-size: 9px; font-weight: 700; color: var(--faint); letter-spacing: .5px; }
+  .seat .cards { display: flex; gap: 3px; margin-top: 4px; }
+  .seat .r3 { display: flex; align-items: center; gap: 5px; margin-top: 4px; min-height: 15px; }
+  /* Bet chips are pushed toward the pot, like chips actually moved forward.
+     Named `wager` rather than `bet` so it cannot collide with the action log's
+     `.lg.bet` row class. */
+  /* Chips sit just below their owner's seat box, so a chip is unambiguously
+     attached to a player.  Positioned as a child of the seat, which is why it
+     survives the box changing height (a folded player's box is shorter). */
+  .wager {
+    position: absolute; left: 50%; top: calc(100% + 6px);
+    transform: translateX(-50%); z-index: 6;
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11.5px; font-weight: 700; color: #f6ead0;
+    background: linear-gradient(180deg, #2b3d50, #1c2a38);
+    border: 1px solid rgba(255,255,255,.16); border-radius: 20px;
+    padding: 2px 9px 2px 4px; box-shadow: 0 2px 7px rgba(0,0,0,.55);
+    white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .wager .chipstack {
+    width: 12px; height: 12px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, #f4dda6, #cc9f49 62%, #8a6a24);
+    border: 1px solid rgba(0,0,0,.4);
+    box-shadow: inset 0 -1px 2px rgba(0,0,0,.3);
+  }
+  .wager.allin { background: linear-gradient(180deg, #5f2b25, #3d1a17); border-color: rgba(255,138,122,.4); color: #ffd9d4; }
+  .wager.allin .chipstack { background: radial-gradient(circle at 35% 30%, #ff9d90, #c0392b 62%, #7d1f16); }
+  .seat .act { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seat .turn { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+
+  /* ---------------- right rail: history ---------------- */
+  #rail {
+    display: grid; grid-template-rows: auto auto minmax(0,1fr);
+    border-left: 1px solid var(--line); background: var(--surface); min-height: 0;
+  }
+  #railHead { padding: 11px 14px 9px; border-bottom: 1px solid var(--line-soft); }
+  #railHead .t { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; }
+  #railHead .t .sub { font-weight: 400; color: var(--faint); font-size: 11px; }
+
+  #replay {
+    display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center;
+    gap: 9px; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); background: #121820;
+  }
+  #replay .lbl { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #replay .lbl.live { color: var(--green); }
+  #replay .lbl.past { color: var(--gold); }
+
+  #log { overflow-y: auto; padding: 4px 0 14px; font-size: 12.5px; }
+  .lg {
+    display: grid; grid-template-columns: 34px minmax(0,1fr) auto;
+    gap: 8px; padding: 5px 12px; align-items: baseline; cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .lg:hover { background: rgba(255,255,255,.03); }
+  .lg.cur { background: rgba(227,181,102,.09); border-left-color: var(--gold); }
+  .lg .no {
+    font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums;
+    text-align: right; padding-top: 1px;
+  }
+  .lg .bd { min-width: 0; }
+  .lg .who { color: var(--dim); font-size: 11.5px; }
+  .lg .ver { font-weight: 600; }
+  .lg.fold .ver { color: var(--red); }
+  .lg.check .ver { color: var(--blue); }
+  .lg.call .ver { color: var(--green); }
+  .lg.bet .ver, .lg.raise .ver { color: var(--gold); }
+  .lg.all_in .ver { color: var(--red); font-weight: 700; }
+  .lg .amt { color: inherit; }
+  .lg .why { color: var(--faint); font-size: 11px; margin-top: 1px; }
+  .lg .say { color: var(--violet); font-style: italic; }
+  .lg .pot { color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; padding-top: 1px; }
+  .lg.hand { background: #101720; border-left-color: #2b3a4a; cursor: default; }
+  .lg.hand .bd { color: var(--blue); letter-spacing: 1.4px; font-size: 10px; text-transform: uppercase; }
+  .lg.hand .pot { color: var(--faint); font-size: 10px; letter-spacing: 0; text-transform: none; }
+  .lg.street { padding: 2px 12px 3px 46px; cursor: default; }
+  .lg.street .bd { color: #4d5c6b; letter-spacing: 1.2px; font-size: 9.5px; text-transform: uppercase; }
+  .lg.win .ver { color: var(--gold); }
+  .lg .cards { display: inline-flex; gap: 2px; margin-left: 5px; vertical-align: -6px; }
+
+  input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; height: 18px; }
+  input[type=range]::-webkit-slider-runnable-track { height: 3px; background: #2c3743; border-radius: 2px; }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--gold); margin-top: -5px; cursor: pointer;
+  }
+  input[type=range]:disabled::-webkit-slider-thumb { background: #3d4a58; }
+
+  /* ---------------- action bar ---------------- */
+  #actions {
+    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+    z-index: 30; display: none; flex-direction: column; gap: 9px;
+    padding: 12px 14px; background: rgba(11,16,22,.97); border: 1px solid #2b3743;
+    border-radius: 15px; box-shadow: 0 16px 44px rgba(0,0,0,.65);
+    backdrop-filter: blur(8px); width: min(560px, 92vw);
+  }
+  #actions.on { display: flex; }
+  #actTop { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  #actInfo { font-size: 12px; color: var(--dim); }
+  #actInfo b { color: var(--gold); font-variant-numeric: tabular-nums; }
+  #actPot { font-size: 11px; color: var(--faint); }
+  #actRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .abtn {
+    border-radius: 10px; padding: 10px 8px; cursor: pointer; font-size: 13px;
+    font-weight: 700; border: 1px solid transparent; text-align: center;
+    transition: filter .12s, background .12s, transform .06s;
+  }
+  .abtn:disabled { opacity: .3; cursor: not-allowed; }
+  .abtn:not(:disabled):hover { filter: brightness(1.15); }
+  .abtn:not(:disabled):active { transform: translateY(1px); }
+  .abtn.fold { background: #3a1c1e; color: var(--red); border-color: #5b2a2c; }
+  .abtn.check { background: #17303f; color: var(--blue); border-color: #24485e; }
+  .abtn.call { background: #17402a; color: var(--green); border-color: #245c3a; }
+  .abtn.allin { background: #4a1a18; color: #ffb4ad; border-color: #6d2a26; }
+
+  /* raise composer */
+  #raiseBox {
+    display: none; flex-direction: column; gap: 9px;
+    border-top: 1px solid var(--line-soft); padding-top: 10px;
+  }
+  #raiseBox.on { display: flex; }
+  #raiseHead { display: flex; align-items: center; gap: 10px; }
+  #raiseHead .lbl { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .8px; }
+  #raiseAmount {
+    background: #0f1620; border: 1px solid #2c3743; border-radius: 9px;
+    padding: 7px 10px; font-size: 17px; font-weight: 700; color: var(--gold);
+    font-variant-numeric: tabular-nums; width: 108px; text-align: right;
+  }
+  #raiseAmount:focus { outline: none; border-color: var(--gold); }
+  #raiseQuick { display: flex; gap: 6px; margin-left: auto; }
+  #raiseQuick button {
+    background: var(--surface-2); border: 1px solid #2c3743; border-radius: 8px;
+    padding: 6px 10px; font-size: 11px; cursor: pointer; color: var(--dim);
+    display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.15;
+  }
+  #raiseQuick button:hover { color: var(--ink); border-color: #46586b; background: #232e3b; }
+  #raiseQuick button .amt { font-size: 12px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  #raiseSlider { width: 100%; }
+  #btnRaise { width: 100%; background: var(--gold); color: #241a08; border-color: var(--gold); }
+  #btnRaise.allin { background: #4a1a18; color: #ffb4ad; border-color: #6d2a26; }
+  #raiseHint { font-size: 10.5px; color: var(--faint); text-align: right; }
+
+  /* ---------------- modal ---------------- */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(4,7,10,.74); display: none;
+    align-items: center; justify-content: center; z-index: 90; backdrop-filter: blur(5px);
+  }
+  .scrim.on { display: flex; }
+  .sheet {
+    background: var(--surface); border: 1px solid #2b3743; border-radius: 14px;
+    width: min(620px, 94vw); max-height: 92vh; overflow-y: auto; padding: 20px;
+    box-shadow: 0 28px 74px rgba(0,0,0,.7);
+  }
+  .sheet h2 { margin: 0 0 3px; font-size: 16px; }
+  .sheet p.hint:first-of-type { margin: 0 0 16px; }
+  .sect { margin-bottom: 15px; }
+  .sect > .lbl {
+    font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--faint); margin-bottom: 7px;
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .fld > span { font-size: 10.5px; color: var(--faint); }
+  input[type=text], input[type=number], input[type=password], select, textarea {
+    background: #0f1620; border: 1px solid #2c3743; border-radius: 8px;
+    padding: 7px 9px; font-size: 12.5px; width: 100%; min-width: 0;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); }
+  .hint { color: var(--dim); font-size: 11.5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid #2c3743; border-radius: 20px; padding: 5px 12px; cursor: pointer;
+    font-size: 12px; user-select: none; display: flex; align-items: baseline; gap: 6px;
+    transition: all .12s; background: var(--surface-2);
+  }
+  .chip:hover { border-color: #3c4b5b; }
+  .chip.on { background: var(--gold); border-color: var(--gold); color: #241a08; }
+  .chip.on .tl { color: #4a3a1c; }
+  .chip .tl { font-size: 10px; color: var(--faint); }
+  .foot { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+  .err { color: var(--red); font-size: 12px; min-height: 17px; margin-top: 8px; }
+  .ok { color: var(--green); }
+  .kbd {
+    font-family: ui-monospace, monospace; font-size: 10.5px; background: #0f1620;
+    border: 1px solid #2c3743; border-radius: 4px; padding: 1px 5px; color: var(--dim);
+  }
+
+  /* provider list */
+  .prov {
+    display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: center;
+    padding: 9px 11px; border: 1px solid var(--line-soft); border-radius: 9px; margin-bottom: 6px;
+    background: var(--surface-2);
+  }
+  .prov .nm { font-weight: 600; font-size: 12.5px; display: flex; align-items: center; gap: 7px; }
+  .prov .dt { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prov .acts { display: flex; gap: 6px; align-items: center; }
+  .badge {
+    font-size: 9.5px; letter-spacing: .4px; text-transform: uppercase; padding: 1px 6px;
+    border-radius: 20px; border: 1px solid #2c3743; color: var(--faint);
+  }
+  .badge.hot { color: var(--green); border-color: #245c3a; background: #12291c; }
+  .badge.builtin { color: var(--blue); border-color: #24485e; background: #12222e; }
+  .tabbar { display: flex; gap: 3px; margin-bottom: 15px; border-bottom: 1px solid var(--line-soft); }
+  .tabbar button {
+    background: none; border: none; border-bottom: 2px solid transparent; color: var(--faint);
+    padding: 7px 12px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  }
+  .tabbar button.on { color: var(--ink); border-bottom-color: var(--gold); }
+  .pane { display: none; }
+  .pane.on { display: block; }
+
+  /* ---------------- floating player cards ---------------- */
+  .pcard {
+    position: fixed; width: 330px; max-height: 66vh; z-index: 70;
+    background: var(--surface); border: 1px solid #2b3743; border-radius: var(--radius);
+    box-shadow: 0 18px 48px rgba(0,0,0,.65); display: flex; flex-direction: column; overflow: hidden;
+  }
+  .pc-head { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-bottom: 1px solid var(--line-soft); cursor: grab; }
+  .pc-head .av {
+    width: 27px; height: 27px; border-radius: 8px; background: var(--surface-2);
+    display: flex; align-items: center; justify-content: center; font-weight: 700;
+    font-size: 13px; color: var(--gold); flex: none;
+  }
+  .pc-head .id { flex: 1; min-width: 0; }
+  .pc-head .n { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pc-head .s { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pc-head .x { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 16px; padding: 0 3px; }
+  .pc-head .x:hover { color: var(--ink); }
+  .pc-head .pc-edit { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 13px; padding: 0 3px; }
+  .pc-head .pc-edit:hover { color: var(--gold); }
+  .pc-tabs { display: flex; gap: 2px; padding: 7px 9px 0; }
+  .pc-tab {
+    background: none; border: none; border-bottom: 2px solid transparent; color: var(--faint);
+    padding: 5px 8px; cursor: pointer; font-size: 11.5px; font-weight: 600;
+  }
+  .pc-tab.on { color: var(--ink); border-bottom-color: var(--gold); }
+  .pc-body { overflow-y: auto; padding: 9px 12px 12px; font-size: 12px; }
+  .pc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 0 12px 10px; }
+  .pc-stat { background: var(--surface-2); border-radius: 7px; padding: 5px 7px; }
+  .pc-stat .k { font-size: 9px; letter-spacing: .5px; color: var(--faint); text-transform: uppercase; }
+  .pc-stat .v { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .pc-stat .v.gold { color: var(--gold); } .pc-stat .v.green { color: var(--green); }
+  .pc-hand { display: flex; align-items: center; gap: 8px; padding: 0 12px 9px; }
+  .pc-hand .str { font-size: 11px; color: var(--dim); }
+  .rec { padding: 7px 0; border-bottom: 1px solid var(--line-soft); display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px; }
+  .rec:last-child { border-bottom: none; }
+  .rec .no { font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; padding-top: 2px; }
+  .rec .t { font-size: 10px; color: var(--faint); }
+  .rec .a { font-weight: 600; }
+  .rec .a.fold { color: var(--red); } .rec .a.call { color: var(--green); }
+  .rec .a.check { color: var(--blue); } .rec .a.raise, .rec .a.bet { color: var(--gold); }
+  .rec .a.all_in { color: var(--red); }
+  .rec .q { color: var(--violet); font-style: italic; }
+  .rec .w { color: #b9c6d2; }
+  .bar { height: 5px; background: #1e2833; border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .bar > i { display: block; height: 100%; background: var(--gold); }
+  .ctx { margin-bottom: 7px; border-radius: 7px; padding: 7px 9px; white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.45; }
+  .ctx.user { background: #16212b; color: #c3d2de; }
+  .ctx.assistant { background: #17251c; color: #cfe3d5; }
+  .ctx .role { display: block; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 3px; }
+  .ctx.faded { opacity: .45; }
+  .ctx .sent { color: var(--green); }
+
+  @media (max-width: 1180px) {
+    :root { --rail-w: 310px; }
+    .seat { width: 128px; }
+  }
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="bar">
+    <div id="brand">&#9824; Poker <span>Arena</span></div>
+    <div class="meta"><span class="dot" id="connDot"></span><span id="statusText">No game</span></div>
+    <div class="grow"></div>
+    <div class="meta" id="tableMeta"></div>
+    <label class="toggle" id="godWrap" title="Show every hole card and every AI's reasoning">
+      <input type="checkbox" id="godToggle"><span>God mode</span>
+    </label>
+    <button class="btn" id="btnPause" disabled>Pause</button>
+    <button class="btn" id="btnStep" disabled>Step</button>
+    <button class="btn" id="btnSettings">Settings</button>
+    <button class="btn primary" id="btnNew" disabled>Start game</button>
+  </div>
+
+  <div id="stage">
+    <div id="felt"><div id="centre">
+      <div id="street">&mdash;</div>
+      <div id="board"></div>
+      <div id="potline"><b>0</b> <i>pot</i></div>
+    </div>
+    <div id="resultPanel"></div>
+    <div id="outRail"></div>
+    <div id="lastHand"></div>
+    </div>
+    <div id="actions">
+      <div id="actTop">
+        <span id="actInfo"></span>
+        <span id="actPot"></span>
+      </div>
+      <div id="actRow">
+        <button class="abtn fold" data-act="fold" id="aFold">Fold</button>
+        <button class="abtn check" data-act="check" id="aCheck">Check</button>
+        <button class="abtn call" data-act="call" id="aCall">Call</button>
+        <button class="abtn allin" data-act="all-in" id="aAllIn">All in</button>
+      </div>
+      <div id="raiseBox">
+        <div id="raiseHead">
+          <span class="lbl" id="raiseLabel">Raise to</span>
+          <input id="raiseAmount" type="text" inputmode="numeric" autocomplete="off">
+          <span id="raiseQuick">
+            <button data-q="0.5">½<small class="amt"></small></button>
+            <button data-q="0.75">¾<small class="amt"></small></button>
+            <button data-q="1">Pot<small class="amt"></small></button>
+            <button data-q="allin">All in<small class="amt"></small></button>
+          </span>
+        </div>
+        <input type="range" id="raiseSlider" min="0" max="0" value="0" step="10">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span id="raiseHint"></span>
+          <button class="abtn" id="btnRaise" style="width:auto;padding:8px 22px">Raise</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="rail">
+    <div id="railHead">
+      <div class="t">Action history <span class="sub" id="railSub">seat players to begin</span></div>
+    </div>
+    <div id="replay">
+      <button class="btn sm ghost" id="btnLive" disabled>Live</button>
+      <input type="range" id="scrub" min="0" max="0" value="0" step="1" disabled>
+      <span class="lbl live" id="scrubLabel">Live</span>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<!-- ============================ settings ============================ -->
+<div class="scrim" id="settings">
+  <div class="sheet">
+    <h2>Settings</h2>
+    <p class="hint">Providers are OpenAI-compatible endpoints. Keys are stored locally in <code>providers.json</code> and never returned to the browser.</p>
+
+    <div class="tabbar">
+      <button class="on" data-pane="providers">Providers</button>
+      <button data-pane="personas">Personas</button>
+      <button data-pane="table">Table defaults</button>
+    </div>
+
+    <div class="pane on" id="pane-providers">
+      <div id="provList"></div>
+      <div class="sect" style="margin-top:14px">
+        <div class="lbl" id="provFormTitle">Add a provider</div>
+        <div class="row">
+          <label class="fld"><span>Label</span><input id="pLabel" type="text" placeholder="My relay"></label>
+          <label class="fld"><span>Model name</span><input id="pModel" type="text" placeholder="deepseek-flash"></label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label class="fld"><span>Base URL</span><input id="pBase" type="text" placeholder="https://api.example.com/v1"></label>
+          <label class="fld"><span>API key</span><input id="pKey" type="password" placeholder="sk-..."></label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label class="fld"><span>Temperature</span><input id="pTemp" type="number" value="0.95" min="0" max="2" step="0.05"></label>
+          <label class="fld"><span>Max tokens</span><input id="pMax" type="number" value="2500" min="64" step="100"></label>
+        </div>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;margin-top:10px">
+          <input type="checkbox" id="pReasoning"> This model returns hidden reasoning (chain-of-thought)
+        </label>
+        <div class="err" id="provErr"></div>
+        <div class="foot" style="margin-top:10px">
+          <button class="btn primary" id="btnProvSave">Add provider</button>
+          <button class="btn ghost" id="btnProvCancel" style="display:none">Cancel edit</button>
+          <button class="btn ghost" id="btnProvTest">Test</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-personas">
+      <div id="personaList"></div>
+      <div class="sect" style="margin-top:14px">
+        <div class="lbl" id="peFormTitle">New persona</div>
+        <div class="row">
+          <label class="fld"><span>Name</span><input id="peName" type="text" placeholder="Vera"></label>
+          <label class="fld"><span>Start from a template</span>
+            <select id="peTemplate"></select>
+          </label>
+        </div>
+        <label class="fld" style="margin-top:10px"><span>Tagline (one line, shown on hover)</span>
+          <input id="peTagline" type="text" placeholder="loose, fearless, loves a big pot">
+        </label>
+
+        <div class="lbl" style="margin-top:14px">Character</div>
+        <label class="fld"><span>System prompt &mdash; how this player thinks and plays</span>
+          <textarea id="peStyle" rows="6" placeholder="You are a patient trapper. You limp with strong hands and let opponents bluff into you..."></textarea>
+        </label>
+        <label class="fld" style="margin-top:10px"><span>Voice &mdash; how it talks at the table</span>
+          <textarea id="peVoice" rows="3" placeholder="Soft-spoken, understated, occasionally sarcastic."></textarea>
+        </label>
+
+        <div class="lbl" style="margin-top:14px">Tendencies</div>
+        <div class="row3">
+          <label class="fld"><span>Aggression <b id="peAggVal">0.50</b></span>
+            <input id="peAgg" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+          <label class="fld"><span>Tightness <b id="peTightVal">0.50</b></span>
+            <input id="peTight" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+          <label class="fld"><span>Bluff frequency <b id="peBluffVal">0.20</b></span>
+            <input id="peBluff" type="range" min="0" max="1" step="0.05" value="0.2"></label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label class="fld"><span>Short label (seat box)</span><input id="peShort" type="text" placeholder="loose trapper"></label>
+          <label class="fld"><span>Temperature <b id="peTempVal">0.90</b></span>
+            <input id="peTemp" type="range" min="0" max="2" step="0.05" value="0.9"></label>
+        </div>
+        <div class="hint" style="margin-top:8px">
+          Tendencies drive the offline bot directly and are also described to the model,
+          so they matter even when no API key is set.
+        </div>
+        <div class="err" id="peErr"></div>
+        <div class="foot" style="margin-top:10px">
+          <button class="btn primary" id="btnPersonaSave">Create persona</button>
+          <button class="btn ghost" id="btnPersonaCancel" style="display:none">Cancel edit</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-table">
+      <div class="row">
+        <label class="fld"><span>Starting stack</span><input id="fChips" type="number" value="1000" min="100" step="100"></label>
+        <label class="fld"><span>Blinds (small / big)</span><input id="fBlinds" type="text" value="10/20"></label>
+        <label class="fld"><span>Hands cap</span><input id="fHands" type="number" value="{{ default_max_hands }}" min="1" step="10"></label>
+        <label class="fld"><span>Seed (blank = random)</span><input id="fSeed" type="number" placeholder="random"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label class="fld"><span>AI pacing (seconds per decision)</span>
+          <input id="fSpeed" type="range" min="0" max="3" step="0.1" value="0">
+          <span class="hint" id="fSpeedVal">0s (as fast as the models allow)</span>
+        </label>
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:12px">
+        <label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="fOffline"> Offline bots only (no API calls)</label>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        Hole cards and AI reasoning are controlled by the <b>God mode</b> switch in the top bar,
+        and can be changed at any time while a game runs.
+      </div>
+      <div class="err" id="startErr"></div>
+      <div class="hint">A seat whose provider has no key cannot start a real game &mdash; add the key under Providers, or tick "Offline bots only".</div>
+    </div>
+
+    <div class="foot"><button class="btn" id="btnCloseSettings">Done</button></div>
+  </div>
+</div>
+
+<!-- ============================ seat editor ============================ -->
+<div class="scrim" id="seatEditor">
+  <div class="sheet" style="width:min(520px,94vw)">
+    <h2 id="seTitle">Seat 1</h2>
+    <p class="hint" id="seHint">Choose who sits here.</p>
+
+    <div class="sect">
+      <div class="lbl">Player</div>
+      <div class="chips" id="seKind">
+        <span class="chip" data-kind="empty">Empty seat</span>
+        <span class="chip" data-kind="human">Me (human)</span>
+        <span class="chip" data-kind="ai">AI opponent</span>
+      </div>
+    </div>
+
+    <div id="seAiFields" style="display:none">
+      <div class="sect">
+        <div class="lbl">Persona</div>
+        <div class="chips" id="sePersona">
+          {% for p in personas %}
+          <span class="chip" data-key="{{ p.key }}" title="{{ p.style }}">
+            <span>{{ p.name }}</span><span class="tl">{{ p.tagline }}</span>
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="sect">
+        <div class="lbl">Model / provider</div>
+        <select id="seProvider"></select>
+        <div class="hint" id="seProviderHint" style="margin-top:5px"></div>
+      </div>
+      <label class="fld"><span>Display name (optional)</span><input id="seName" type="text" placeholder="uses the persona name"></label>
+    </div>
+
+    <div class="err" id="seErr"></div>
+    <div class="foot">
+      <button class="btn primary" id="btnSeatSave">Save seat</button>
+      <button class="btn danger" id="btnSeatClear" style="display:none">Clear seat</button>
+      <button class="btn ghost" id="btnSeatCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const SUIT = {c: "\u2663", d: "\u2666", h: "\u2665", s: "\u2660"};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (m) => (
+  {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+const VERB = {
+  fold: "folds", check: "checks", call: "calls", bet: "bets",
+  raise: "raises to", all_in: "is all in for", post_ante: "posts ante",
+  post_blind: "posts blind",
+};
+const SHOW_AMOUNT = new Set(["call","bet","raise","all_in"]);
+
+let sessionId = null;
+let snap = null;
+let timer = null;
+let openSeats = new Set();
+let viewIndex = null;
+let logKey = "";
+let providers = [];
+let maxSeats = 6;
+let defaultProvider = "";
+let seats = [];                 // local seat plan: {seat, kind, persona, provider, name}
+let editingSeat = null;
+let editingProvider = null;
+
+/* ------------------------------------------------------------------ cards */
+function cardHtml(code, size) {
+  if (!code) return cardBackHtml(size);
+  const r = code[0] === "T" ? "10" : code[0];
+  const s = code[1];
+  const red = (s === "h" || s === "d") ? " r" : "";
+  return `<span class="card ${size}${red}">${r}${SUIT[s] || s}</span>`;
+}
+/** A face-down card.  Used for hidden hands, so it must look like a card. */
+const cardBackHtml = (size) => `<span class="card back ${size}"></span>`;
+const cardsHtml = (codes, size) => (codes || []).map((c) => cardHtml(c, size)).join("");
+
+/* Seat geometry: six comfortable positions around the felt. */
+const SEAT_POS = [
+  { left: "50%", top: "80%" },
+  { left: "21%", top: "68%" },
+  { left: "21%", top: "28%" },
+  { left: "50%", top: "16%" },
+  { left: "79%", top: "28%" },
+  { left: "79%", top: "68%" },
+];
+
+const providerLabel = (id) => {
+  if (!id) return "local bot";
+  const found = providers.find((p) => p.id === id);
+  if (!found) return id;
+  // A provider with no key silently degrades to the offline brain, so say so
+  // rather than implying the seat will call a model.
+  return found.has_key ? found.label : "local bot";
+};
+
+/** Players actually at the table: the running game if there is one, else the plan. */
+const playerCount = () => snap
+  ? (snap.players || []).filter((p) => p.seated).length
+  : seats.filter((s) => s.kind && s.kind !== "empty").length;
+const seatedPlan = () => seats.filter((s) => s.kind && s.kind !== "empty");
+
+/* ------------------------------------------------------------------ plan */
+function loadPlan() {
+  try {
+    const raw = localStorage.getItem("pokerarena.seats");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) { /* ignore a corrupt plan */ }
+  // A sensible starting table: two AI opponents.
+  return [
+    { seat: 1, kind: "ai", persona: "maniac", provider: defaultProvider, name: "" },
+    { seat: 3, kind: "ai", persona: "rock", provider: defaultProvider, name: "" },
+  ];
+}
+function savePlan() {
+  try { localStorage.setItem("pokerarena.seats", JSON.stringify(seats)); } catch (e) {}
+}
+const seatAt = (index) => seats.find((s) => s.seat === index) || null;
+
+/* ------------------------------------------------------- replay / render */
+function replayFloor() {
+  const events = (snap && snap.events) || [];
+  const markers = events
+    .filter((e) => e.kind === "hand_start" || e.kind === "street_start")
+    .map((e) => e._ai)
+    .filter((i) => typeof i === "number" && i >= 0);
+  if (!markers.length) return 0;
+  return Math.min(...markers);
+}
+
+function stateAt(index) {
+  if (index === null || !snap) return snap;
+  const actions = snap.actions || [];
+  const last = actions[index];
+  if (!last) return snap;
+  const board = [], cards = {}, chips = {}, bets = {};
+  const folded = new Set();
+  let pot = 0, streetLabel = "Pre-Flop", hand = last.hand, winner = null;
+  (snap.players || []).forEach((p) => { chips[p.seat] = p.chips; cards[p.seat] = p.hole_cards; });
+
+  for (const ev of (snap.events || [])) {
+    if (typeof ev._ai !== "number" || ev._ai > index) continue;
+    if (ev.kind === "board_dealt") { board.length = 0; board.push(...(ev.board || ev.cards || [])); }
+    if (ev.kind === "street_start") {
+      streetLabel = ev.label;
+      if (ev.board) { board.length = 0; board.push(...ev.board); }
+    }
+    if (ev.kind === "hand_start") { streetLabel = "Pre-Flop"; board.length = 0; hand = ev.hand_number; }
+    if (ev.kind === "action_taken") {
+      chips[ev.seat] = ev.chips ?? chips[ev.seat];
+      bets[ev.seat] = ev.street_bet ?? 0;
+      if (ev.action === "fold") folded.add(ev.seat);
+      pot = ev.pot;
+    }
+    if (ev.kind === "showdown") (ev.players || []).forEach((s) => { cards[s.seat] = s.hole_cards; });
+    if (ev.kind === "payout" && ev.reason !== "uncalled_bet_returned") winner = ev.seat;
+  }
+  return {
+    ...snap, hand_number: hand, street_label: streetLabel, board, pot: last.pot ?? pot,
+    players: (snap.players || []).map((p) => ({
+      ...p,
+      chips: chips[p.seat] ?? p.chips,
+      hole_cards: cards[p.seat] ?? null,
+      street_bet: bets[p.seat] ?? 0,
+      status: folded.has(p.seat) ? "folded" : p.status,
+    })),
+    actor: null, awaiting_human: false, _winnerSeat: winner,
+  };
+}
+
+/* -------------------------------------------------------------- rendering */
+/** The chips a seat has pushed forward, rendered inside that seat's box.
+ *
+ * Being a child of ``.seat`` is what keeps the chip visually attached to its
+ * owner: the felt is far wider than it is tall, so a chip placed by percentage
+ * coordinates of its own would drift sideways and could sit under a neighbour.
+ */
+function betChipHtml(amount, allIn) {
+  return `<div class="wager${allIn ? " allin" : ""}"
+       title="${esc(allIn ? `all in for ${amount}` : `bet ${amount}`)}">
+    <span class="chipstack"></span>${allIn ? "all in " : ""}${amount}</div>`;
+}
+
+function seatHtml(p, s) {
+  const pos = SEAT_POS[p.seat] || SEAT_POS[0];
+  if (!p.seated) {
+    return `<div class="seat is-empty" style="left:${pos.left};top:${pos.top}" data-seat="${p.seat}" data-empty="1">
+      <span class="plus">+</span><span class="lbl">Seat ${p.seat + 1}</span></div>`;
+  }
+  const isMe = p.seat === s.human_seat;
+  const actor = s.actor === p.seat && !s.finished;
+  const cls = ["seat",
+    actor ? "is-actor" : "",
+    isMe ? "is-me" : "",
+    openSeats.has(p.seat) ? "is-viewing" : "",
+    s._winnerSeat === p.seat ? "is-winner" : "",
+  ].join(" ");
+  const marks = [];
+  if (p.seat === s.button) marks.push("BTN");
+  if (p.seat === s.small_blind_seat) marks.push("SB");
+  if (p.seat === s.big_blind_seat) marks.push("BB");
+  const persona = p.is_ai ? (p.persona_name || p.persona) : "You";
+  // No persona label here: the seat already shows the player's name, and the
+  // box is small.  The style is one click away in the player card.
+  const act = p.last_action && !s.finished
+    ? `<span class="act">${esc(p.last_action)}</span>` : "";
+  return `<div class="${cls}" style="left:${pos.left};top:${pos.top}" data-seat="${p.seat}"
+       title="${esc(p.is_ai ? `${p.name} \u00b7 ${persona}` : p.name)}">
+    <div class="r1">${actor ? '<span class="turn"></span>' : ""}
+      <span class="nm">${esc(p.name)}</span><span class="st">${p.chips}</span></div>
+    <div class="r2"><span class="pos">${marks.join(" ")}</span></div>
+    <div class="cards">${
+      p.hole_cards ? cardsHtml(p.hole_cards, "sm") : cardBackHtml("sm") + cardBackHtml("sm")
+    }</div>
+    <div class="r3">${act}</div>
+  </div>`;
+}
+
+function render() {
+  if (!snap) { renderPlanPreview(); return; }
+  const s = stateAt(viewIndex);
+  $("street").textContent = s.street_label || "\u2014";
+  $("board").innerHTML = (s.board || []).map((c) => cardHtml(c, "lg")).join("");
+  $("potline").innerHTML = `<b>${s.pot ?? 0}</b> <i>pot</i>`;
+
+  const felt = $("felt");
+  felt.querySelectorAll(".seat").forEach((n) => n.remove());
+  (s.players || []).forEach((p) => {
+    // A busted player is moved to the "Out" list rather than left dimmed on the
+    // felt, where a dead box just competes with the live seats.
+    if (p.seated && p.chips <= 0) return;
+    felt.insertAdjacentHTML("beforeend", seatHtml(p, s));
+  });
+  // Attach each live wager to its owner's box, then wire up the clicks.
+  (s.players || []).forEach((p) => {
+    if (!p.seated || p.chips <= 0 || p.street_bet <= 0) return;
+    const seat = felt.querySelector(`.seat[data-seat="${p.seat}"]`);
+    if (seat) seat.insertAdjacentHTML("beforeend", betChipHtml(p.street_bet, p.status === "all_in"));
+  });
+  felt.querySelectorAll(".seat").forEach((node) => {
+    node.addEventListener("click", () => onSeatClick(Number(node.dataset.seat)));
+  });
+
+  renderResultPanel(s);
+  renderLastHand(s);
+  renderOutRail(s);
+  renderLog();
+  renderActions();
+  renderMeta();
+}
+
+/** Players with no chips left, listed off the felt so they stop cluttering it. */
+function renderOutRail(s) {
+  const rail = $("outRail");
+  const busted = (s.players || []).filter((p) => p.seated && p.chips <= 0);
+  if (!busted.length) { rail.classList.remove("on"); rail.innerHTML = ""; return; }
+  rail.innerHTML = `<div class="hdr">Out</div>` + busted.map((p) => `
+    <div class="outChip" data-seat="${p.seat}" title="${esc(p.name)} \u2014 out of chips">
+      <span class="av">${esc((p.persona_name || p.name || "?").slice(0, 1))}</span>
+      <span class="nm">${esc(p.name)}</span>
+    </div>`).join("");
+  rail.classList.add("on");
+  rail.querySelectorAll(".outChip").forEach((n) => {
+    n.addEventListener("click", () => togglePlayer(Number(n.dataset.seat)));
+  });
+}
+
+/** Show what just happened while the finished hand is held on screen.
+ *
+ * The hold scales with how much there is to read, and the card carries a
+ * countdown so the pause is never a mystery.  Clicking it (or pressing space)
+ * deals the next hand immediately; the same result also stays available in the
+ * corner card afterwards, so nothing is lost if you looked away.
+ */
+function renderResultPanel(s) {
+  const panel = $("resultPanel");
+  if (!s.hand_result || viewIndex !== null || s.finished || !s.holding_result) {
+    panel.classList.remove("on");
+    return;
+  }
+  const result = s.hand_result;
+  const winners = result.winners || [];
+  if (!winners.length) { panel.classList.remove("on"); return; }
+
+  const reveals = result.showdown.map((r) => `
+    <div class="rp-row">
+      <span class="rp-name">${esc(r.name)}</span>
+      <span class="rp-cards">${cardsHtml(r.cards, "sm")}</span>
+      <span class="rp-hand">${esc(r.hand_name)}</span>
+    </div>`).join("");
+
+  const total = s.hold_total || 1;
+  const left = Math.max(0, s.hold_remaining || 0);
+  panel.innerHTML = `
+    <div class="rp-head">
+      <span class="rp-title">${winners.map(esc).join(" & ")} ${winners.length > 1 ? "split" : "wins"}</span>
+      <span class="rp-pot">${result.pot}</span>
+    </div>
+    ${result.board.length ? `<div class="rp-board">${cardsHtml(result.board, "sm")}</div>` : ""}
+    ${reveals || `<div class="rp-none">${
+      result.board.length ? "won without a showdown" : "everyone folded pre-flop"
+    }</div>`}
+    <div class="rp-foot">click for the next hand, or press space</div>
+    <span class="rp-count"><i style="width:${Math.round((left / total) * 100)}%"></i></span>`;
+  panel.classList.add("on");
+  panel.onclick = () => skipHold();
+}
+
+/** The previous hand, kept in the corner until the next one is decided. */
+function renderLastHand(s) {
+  const box = $("lastHand");
+  const result = s.hand_result;
+  if (!result || viewIndex !== null) { box.classList.remove("on"); return; }
+  const winners = result.winners || [];
+  if (!winners.length) { box.classList.remove("on"); return; }
+  const reveals = result.showdown.map((r) => `
+    <div class="lh-c">${cardsHtml(r.cards, "xs")}<span class="lh-n">${esc(r.name)} \u00b7 ${esc(r.hand_name)}</span></div>
+  `).join("");
+  box.innerHTML = `
+    <div class="lh-h">Hand ${result.hand}</div>
+    <div class="lh-t">${winners.map(esc).join(" & ")} won <b>${result.pot}</b></div>
+    ${result.board.length ? `<div class="lh-c">${cardsHtml(result.board, "xs")}</div>` : ""}
+    ${reveals}`;
+  box.classList.add("on");
+  box.title = "Show this hand in the action rail";
+}
+
+async function skipHold() {
+  if (!sessionId) return;
+  $("resultPanel").classList.remove("on");
+  await fetch(`/api/game/${sessionId}/control`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action: "skip-hold"}),
+  });
+  poll();
+}
+
+/** Count the hold down smoothly between polls, so the bar is not steppy. */
+let holdTicker = null;
+function startHoldTicker() {
+  if (holdTicker) return;
+  holdTicker = setInterval(() => {
+    const panel = $("resultPanel");
+    if (!panel.classList.contains("on") || !snap) return;
+    const bar = panel.querySelector(".rp-count > i");
+    if (!bar) return;
+    const total = snap.hold_total || 1;
+    // Ease the local estimate down; the next poll resyncs it exactly.
+    const current = (parseFloat(bar.style.width) / 100) * total;
+    const next = Math.max(0, current - 0.1);
+    bar.style.width = `${Math.round((next / total) * 100)}%`;
+  }, 100);
+}
+
+function renderPlanPreview() {
+  // Before a game exists, show the plan so the table is not an empty oval.
+  const felt = $("felt");
+  felt.querySelectorAll(".seat").forEach((n) => n.remove());
+  $("street").textContent = "\u2014";
+  $("board").innerHTML = "";
+  $("potline").innerHTML = `<b>0</b> <i>pot</i>`;
+  for (let i = 0; i < maxSeats; i++) {
+    const plan = seatAt(i);
+    const pos = SEAT_POS[i];
+    if (!plan || plan.kind === "empty") {
+      felt.insertAdjacentHTML("beforeend",
+        `<div class="seat is-empty" style="left:${pos.left};top:${pos.top}" data-seat="${i}" data-empty="1">
+          <span class="plus">+</span><span class="lbl">Seat ${i + 1}</span></div>`);
+    } else {
+      const personaName = plan.kind === "human" ? "You"
+        : (personaMeta(plan.persona)?.name || plan.persona);
+      const shown = plan.name || personaName;
+      const style = plan.kind === "human" ? "" : (personaMeta(plan.persona)?.tagline || "");
+      felt.insertAdjacentHTML("beforeend",
+        `<div class="seat${plan.kind === "human" ? " is-me" : ""}" style="left:${pos.left};top:${pos.top}" data-seat="${i}"
+             title="${esc(style ? `${shown} \u00b7 ${style}` : shown)}">
+          <div class="r1"><span class="nm">${esc(shown)}</span><span class="st">${$("fChips").value || 1000}</span></div>
+          <div class="r2"><span class="pos">${plan.kind === "human" ? "" : esc(providerLabel(plan.provider))}</span></div>
+          <div class="cards">${cardHtml(null,"sm") + cardHtml(null,"sm")}</div>
+          <div class="r3"><span class="act">${esc(plan.kind === "human" ? "ready" : "tap to change")}</span></div>
+        </div>`);
+    }
+  }
+  felt.querySelectorAll(".seat").forEach((node) => {
+    node.addEventListener("click", () => onSeatClick(Number(node.dataset.seat)));
+  });
+  renderMeta();
+}
+
+let PERSONAS = [];
+function personaMeta(key) { return PERSONAS.find((p) => p.key === key) || null; }
+
+function renderMeta() {
+  if (!snap) {
+    const n = playerCount();
+    $("statusText").innerHTML = n >= 2 ? "Ready to start" : `${n} / 2 players seated`;
+    $("connDot").className = "dot" + (n >= 2 ? "" : " paused");
+    $("tableMeta").innerHTML = "";
+    $("railSub").textContent = "no game yet";
+    $("btnNew").disabled = n < 2;
+    $("btnNew").textContent = "Start game";
+    $("btnPause").disabled = true;
+    $("btnStep").disabled = true;
+    return;
+  }
+  const s = snap;
+  const bits = [];
+  if (s.finished) bits.push(s.winner ? `<b>${esc(s.winner)}</b> wins` : "game over");
+  else if (s.paused) bits.push("<b>Paused</b>");
+  else if (s.awaiting_human) bits.push("<b>Your move</b>");
+  else bits.push("Playing");
+  $("statusText").innerHTML = bits.join(" \u00b7 ");
+  $("connDot").className = "dot" + (s.paused ? " paused" : "") + (s.error ? " bad" : "");
+  $("tableMeta").innerHTML =
+    `hand <b>${s.hand_number}</b>${s.hand_cap ? ` / ${s.hand_cap}` : ""}` +
+    ` \u00b7 blinds <b>${s.small_blind}/${s.big_blind}</b>` +
+    (s.ante ? ` \u00b7 ante <b>${s.ante}</b>` : "") +
+    (s.blind_level > 1 ? ` \u00b7 level <b>${s.blind_level}</b>` : "") +
+    (s.error ? ` \u00b7 <span style="color:var(--red)">${esc(s.error)}</span>` : "");
+  $("railSub").textContent = `${(s.actions || []).length} actions \u00b7 ${playerCount()} players`;
+  $("btnPause").disabled = !sessionId || s.finished;
+  $("btnPause").textContent = s.paused ? "Resume" : "Pause";
+  $("btnStep").disabled = !sessionId || !s.paused || s.finished;
+  $("btnNew").textContent = "New game";
+  $("btnNew").disabled = false;
+  // A game that is over reveals everything anyway, so the switch is moot then.
+  $("godWrap").style.opacity = s.finished ? ".55" : "1";
+}
+
+/* --------------------------------------------------------------- the log */
+function renderLog() {
+  const actions = snap.actions || [];
+  const key = actions.length + ":" + (viewIndex ?? "live") + ":" + snap.hand_number;
+  if (key === logKey) return;
+  logKey = key;
+
+  const cutoff = viewIndex === null ? actions.length - 1 : viewIndex;
+  const rows = [];
+  let lastHand = null, lastStreet = null;
+  actions.forEach((a, i) => {
+    if (i > cutoff) return;
+    if (a.hand !== lastHand) {
+      lastHand = a.hand;
+      lastStreet = null;
+      rows.push(`<div class="lg hand"><span class="no"></span><span class="bd">Hand ${a.hand}</span><span class="pot"></span></div>`);
+    }
+    if (a.street_label !== lastStreet) {
+      lastStreet = a.street_label;
+      rows.push(`<div class="lg street"><span class="no"></span><span class="bd">${esc(a.street_label)}</span><span class="pot"></span></div>`);
+    }
+    const why = (a.thought || "").trim();
+    rows.push(`<div class="lg ${a.action}${i === cutoff ? " cur" : ""}" data-i="${i}">
+      <span class="no">#${a.seq}</span>
+      <span class="bd"><span class="who">${esc(a.name)}</span> <span class="ver">${VERB[a.action] || a.action}</span>` +
+      `${a.amount && SHOW_AMOUNT.has(a.action) ? ` <span class="amt">${a.amount}</span>` : ""}` +
+      `${a.speech ? ` <span class="say">&ldquo;${esc(a.speech)}&rdquo;</span>` : ""}` +
+      `${why ? `<div class="why">${esc(why.slice(0, 200))}</div>` : ""}</span>
+      <span class="pot">${a.pot != null ? a.pot : ""}</span>
+    </div>`);
+  });
+
+  const box = $("log");
+  box.innerHTML = rows.join("") ||
+    `<div class="lg"><span class="no"></span><span class="bd hint">${
+      sessionId ? "Dealing the first hand\u2026" : "Seat at least two players, then press Start game."
+    }</span><span class="pot"></span></div>`;
+  if (viewIndex === null) box.scrollTop = box.scrollHeight;
+
+  const floor = replayFloor();
+  const scrub = $("scrub");
+  scrub.max = Math.max(0, actions.length - 1);
+  scrub.min = Math.min(floor, scrub.max);
+  scrub.disabled = actions.length === 0;
+  if (viewIndex !== null) scrub.value = viewIndex;
+  $("btnLive").disabled = viewIndex === null;
+  const label = $("scrubLabel");
+  if (viewIndex === null) {
+    label.className = "lbl live";
+    label.textContent = "Live";
+  } else {
+    label.className = "lbl past";
+    label.textContent = `#${actions[viewIndex] ? actions[viewIndex].seq : "?"} / ${actions.length}`;
+  }
+}
+
+/* ------------------------------------------------------------ action bar */
+/* The amount the player is composing.  It must survive the 650ms poll: this
+   used to be re-derived from the legal window on every refresh, which silently
+   wiped whatever the player had chosen (and made the quick-size buttons look
+   broken).  It is reset only when a genuinely new decision begins. */
+let raiseAmount = null;
+let raiseTurnKey = "";
+
+const turnKey = () =>
+  snap ? `${snap.hand_number}:${snap.street}:${snap.actor}:${snap.actions.length}` : "";
+
+function setRaiseAmount(value, {fromUser = true} = {}) {
+  const lo = Number($("raiseSlider").min);
+  const hi = Number($("raiseSlider").max);
+  let next = Math.round(Number(value) / 10) * 10;
+  if (!Number.isFinite(next)) next = lo;
+  next = Math.min(hi, Math.max(lo, next));
+  raiseAmount = next;
+  $("raiseSlider").value = next;
+  $("raiseAmount").value = next;
+  if (fromUser) raiseAmountTouched = true;
+  syncRaiseExtras(next, lo, hi);
+}
+let raiseAmountTouched = false;
+
+/** The four preset sizes, computed the way a player would say them out loud.
+ *
+ * Facing a bet, "half pot" means: call, then bet half of the *resulting* pot.
+ * So the total is `my_bet + to_call + f * (pot + to_call)` -- not `f * pot`,
+ * which grossly under-sizes whenever there is something to call.  Opening (no
+ * bet to face) is measured in big blinds instead, as players actually do.
+ */
+function quickSizes(lo, hi) {
+  const legal = (snap && snap.legal) || {};
+  const pot = (snap && snap.pot) || 0;
+  const bigBlind = (snap && snap.big_blind) || 20;
+  const actor = snap && snap.players.find((p) => p.seat === snap.actor);
+  const myBet = actor ? actor.street_bet || 0 : 0;
+  const canCall = !!legal.can_call;
+  const toCall = canCall ? legal.call_cost || 0 : 0;
+  const potAfterCall = pot + toCall;
+  const round10 = (v) => Math.round(v / 10) * 10;
+  const clamp = (v) => Math.min(hi, Math.max(lo, round10(v)));
+  const fraction = (f) => clamp(myBet + toCall + potAfterCall * f);
+
+  return {
+    half: canCall ? fraction(0.5) : clamp(2.5 * bigBlind),
+    threeQuarter: canCall ? fraction(0.75) : clamp(3 * bigBlind),
+    pot: canCall ? fraction(1) : clamp(potAfterCall),
+    allin: legal.all_in_to != null ? Math.min(hi, legal.all_in_to) : hi,
+  };
+}
+
+/** Write the computed sizes onto the buttons and refresh the hint text. */
+function syncRaiseExtras(value, lo, hi) {
+  const sizes = quickSizes(lo, hi);
+  const map = { "0.5": sizes.half, "0.75": sizes.threeQuarter, "1": sizes.pot, allin: sizes.allin };
+  $("raiseQuick").querySelectorAll("button").forEach((b) => {
+    const amount = map[b.dataset.q];
+    b.querySelector(".amt").textContent = amount;
+    b.dataset.amount = amount;
+  });
+
+  const isBet = !!(snap && snap.legal && !snap.legal.can_call && snap.legal.can_bet);
+  const allIn = value >= hi;
+  $("raiseHint").innerHTML =
+    `${isBet ? "bet" : "raise"} ${value}` +
+    (allIn ? " \u00b7 <b style='color:var(--gold)'>all in</b>" : "") +
+    ` \u00b7 allowed ${lo}\u2013${hi}`;
+  $("btnRaise").textContent = allIn ? "All in" : (isBet ? "Bet" : "Raise");
+  $("btnRaise").classList.toggle("allin", allIn);
+}
+
+function renderActions() {
+  const s = snap, legal = s && s.legal, box = $("actions");
+  if (!legal || !s.awaiting_human || s.finished || s.paused || viewIndex !== null) {
+    box.classList.remove("on");
+    return;
+  }
+  box.classList.add("on");
+  $("aFold").disabled = !legal.can_fold;
+  $("aCheck").disabled = !legal.can_check;
+  $("aCall").disabled = !legal.can_call;
+  $("aCall").textContent = legal.can_call ? `Call ${legal.call_cost}` : "Call";
+  const isBet = !legal.can_call && legal.can_bet;
+  const lo = isBet ? legal.min_bet_to : legal.min_raise_to;
+  const hi = isBet ? legal.max_bet_to : legal.max_raise_to;
+  const canRaise = (legal.can_raise || legal.can_bet) && hi > 0;
+  $("aAllIn").disabled = legal.all_in_to == null;
+  $("aAllIn").textContent = legal.all_in_to != null ? `All in ${legal.all_in_to}` : "All in";
+  $("actInfo").innerHTML = legal.can_check
+    ? "Nothing to call \u2014 you can check"
+    : `To call <b>${legal.call_cost}</b>`;
+  $("actPot").textContent = `pot ${s.pot}`;
+  $("raiseLabel").textContent = isBet ? "Bet" : "Raise to";
+
+  const box2 = $("raiseBox");
+  if (!canRaise) {
+    box2.classList.remove("on");
+    return;
+  }
+  box2.classList.add("on");
+  const sl = $("raiseSlider");
+  sl.min = lo; sl.max = hi;
+  // 10-chip granularity, as asked; never finer than the legal window allows.
+  sl.step = Math.max(10, Math.ceil((hi - lo) / 200 / 10) * 10);
+
+  // A new decision starts fresh; the same decision keeps what the player typed.
+  const key = turnKey();
+  if (key !== raiseTurnKey) {
+    raiseTurnKey = key;
+    raiseAmountTouched = false;
+  }
+  if (!raiseAmountTouched || raiseAmount == null || raiseAmount < lo || raiseAmount > hi) {
+    setRaiseAmount(defaultRaise(legal, lo, hi), {fromUser: false});
+  } else {
+    setRaiseAmount(raiseAmount);
+  }
+}
+
+function defaultRaise(legal, lo, hi) {
+  const pot = snap.pot || 0;
+  const actor = snap.players.find((p) => p.seat === snap.actor);
+  const myBet = actor ? actor.street_bet || 0 : 0;
+  const target = legal.can_call
+    ? myBet + legal.call_cost + Math.round(pot * 0.6)
+    : Math.round(pot * 0.6);
+  return Math.min(hi, Math.max(lo, Math.round(target / 10) * 10));
+}
+
+async function sendAction(action) {
+  if (!sessionId) return;
+  $("actions").querySelectorAll("button").forEach((b) => (b.disabled = true));
+  try {
+    const r = await fetch(`/api/game/${sessionId}/action`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action}),
+    });
+    const data = await r.json();
+    if (data.error) $("actInfo").innerHTML = `<span style="color:var(--red)">${esc(data.error)}</span>`;
+    poll();
+  } catch (e) { /* next poll resyncs */ }
+}
+
+$("actions").querySelectorAll("button[data-act]").forEach((b) => {
+  b.addEventListener("click", () => sendAction(b.dataset.act));
+});
+
+$("raiseSlider").addEventListener("input", (e) => setRaiseAmount(e.target.value));
+$("raiseAmount").addEventListener("input", (e) => {
+  const raw = e.target.value.replace(/[^0-9]/g, "");
+  if (raw === "") { raiseAmountTouched = true; return; }
+  const lo = Number($("raiseSlider").min), hi = Number($("raiseSlider").max);
+  const clamped = Math.min(hi, Math.max(lo, Number(raw)));
+  raiseAmount = clamped;
+  raiseAmountTouched = true;
+  $("raiseSlider").value = clamped;
+  syncRaiseExtras(clamped, lo, hi);
+});
+$("raiseAmount").addEventListener("blur", () => {
+  if (raiseAmount != null) $("raiseAmount").value = raiseAmount;
+});
+$("raiseQuick").querySelectorAll("button").forEach((b) => {
+  b.addEventListener("click", () => setRaiseAmount(Number(b.dataset.amount)));
+});
+$("btnRaise").addEventListener("click", () => {
+  const hi = Number($("raiseSlider").max);
+  sendAction(raiseAmount >= hi ? "all-in" : `raise ${raiseAmount}`);
+});
+
+/* ------------------------------------------------------- seat click logic */
+/* Before a game, a click sets the seat up.  During a game it opens that
+   player's detail card, which carries a pencil to change the seat instead. */
+function onSeatClick(index) {
+  if (snap && snap.players[index] && snap.players[index].seated) togglePlayer(index);
+  else openSeatEditor(index);
+}
+
+/* ----------------------------------------------------------- seat editor */
+function openSeatEditor(index) {
+  editingSeat = index;
+  let plan = seatAt(index);
+  if (!plan && snap) {
+    // Adopt the running game's seat so editing starts from what is on the felt.
+    const p = (snap.players || []).find((x) => x.seat === index && x.seated);
+    if (p) {
+      plan = {
+        seat: index,
+        kind: p.seat === snap.human_seat ? "human" : "ai",
+        persona: p.persona || "",
+        provider: p.provider || "",
+        name: p.name || "",
+      };
+    }
+  }
+  plan = plan || { seat: index, kind: "empty", persona: "", provider: defaultProvider, name: "" };
+  $("seTitle").textContent = `Seat ${index + 1}`;
+  $("seHint").textContent = snap
+    ? "This game is already running \u2014 changes apply to the next game."
+    : "Choose who sits here.";
+  $("seKind").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.dataset.kind === plan.kind));
+  $("seName").value = plan.name || "";
+  $("seProvider").value = plan.provider || defaultProvider;
+  $("sePersona").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.dataset.key === plan.persona));
+  $("btnSeatClear").style.display = plan.kind === "empty" ? "none" : "inline-block";
+  $("seErr").textContent = "";
+  syncSeatForm();
+  $("seatEditor").classList.add("on");
+}
+
+function selectedKind() {
+  const on = $("seKind").querySelector(".chip.on");
+  return on ? on.dataset.kind : "empty";
+}
+function selectedPersona() {
+  const on = $("sePersona").querySelector(".chip.on");
+  return on ? on.dataset.key : "";
+}
+
+function syncSeatForm() {
+  const kind = selectedKind();
+  $("seAiFields").style.display = kind === "ai" ? "block" : "none";
+  if (kind === "ai" && !selectedPersona()) {
+    const first = $("sePersona").querySelector(".chip");
+    if (first) first.classList.add("on");
+  }
+  const prov = providers.find((p) => p.id === $("seProvider").value);
+  $("seProviderHint").innerHTML = !prov ? ""
+    : prov.has_key
+      ? `<span class="ok">key configured</span> \u00b7 ${esc(prov.model)}`
+      : `no key \u2014 falls back to the offline bot \u00b7 ${esc(prov.model)}`;
+}
+
+$("seKind").querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    $("seKind").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
+    syncSeatForm();
+  });
+});
+$("sePersona").querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    $("sePersona").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
+    const meta = personaMeta(chip.dataset.key);
+    if (meta && !$("seName").value.trim()) $("seName").placeholder = meta.name;
+  });
+});
+$("seProvider").addEventListener("change", syncSeatForm);
+$("btnSeatCancel").addEventListener("click", () => $("seatEditor").classList.remove("on"));
+$("seatEditor").addEventListener("click", (e) => {
+  if (e.target.id === "seatEditor") $("seatEditor").classList.remove("on");
+});
+$("btnSeatClear").addEventListener("click", () => {
+  seats = seats.filter((s) => s.seat !== editingSeat);
+  savePlan();
+  $("seatEditor").classList.remove("on");
+  refreshSeatingUi();
+});
+$("btnSeatSave").addEventListener("click", () => {
+  const kind = selectedKind();
+  const persona = selectedPersona();
+  if (kind === "ai" && !persona) { $("seErr").textContent = "Pick a persona for this AI seat."; return; }
+  if (kind === "human" && seats.some((s) => s.kind === "human" && s.seat !== editingSeat)) {
+    $("seErr").textContent = "Only one human seat is supported.";
+    return;
+  }
+  const entry = {
+    seat: editingSeat,
+    kind,
+    persona: kind === "ai" ? persona : "",
+    provider: kind === "ai" ? $("seProvider").value : "",
+    name: $("seName").value.trim().slice(0, 24),
+  };
+  seats = seats.filter((s) => s.seat !== editingSeat);
+  if (kind !== "empty") seats.push(entry);
+  seats.sort((a, b) => a.seat - b.seat);
+  savePlan();
+  $("seatEditor").classList.remove("on");
+  refreshSeatingUi();
+});
+
+function refreshSeatingUi() {
+  if (snap) render(); else renderPlanPreview();
+  renderMeta();
+}
+
+/* ------------------------------------------------------------------ poll */
+async function poll() {
+  if (!sessionId) return;
+  try {
+    const r = await fetch(`/api/game/${sessionId}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.session) return;
+    snap = data.session;
+    if (snap.finished && viewIndex !== null) viewIndex = null;
+    // Follow the session's god mode unless the user just toggled it locally.
+    if (pendingGodMode === null || pendingGodMode === snap.god_mode) {
+      pendingGodMode = null;
+      syncGodToggle(!!snap.god_mode);
+    }
+    render();
+    openSeats.forEach((seat) => loadPlayer(seat));
+  } catch (e) {
+    $("connDot").className = "dot bad";
+  }
+}
+function startPolling() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(poll, 650);
+  poll();
+}
+
+/* ------------------------------------------------------------- controls */
+$("btnPause").addEventListener("click", async () => {
+  if (!sessionId) return;
+  await fetch(`/api/game/${sessionId}/control`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action: snap && snap.paused ? "resume" : "pause"}),
+  });
+  poll();
+});
+$("btnStep").addEventListener("click", async () => {
+  if (!sessionId) return;
+  await fetch(`/api/game/${sessionId}/control`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action: "step", count: 1}),
+  });
+  poll();
+});
+$("btnLive").addEventListener("click", () => { viewIndex = null; render(); });
+$("scrub").addEventListener("input", (e) => { viewIndex = Number(e.target.value); render(); });
+
+/* God mode: a live switch, not a per-game setting.  It gates both hole cards
+   and reasoning, and never changes what the models are told. */
+let pendingGodMode = null;
+
+$("godToggle").addEventListener("change", async (e) => {
+  const enabled = e.target.checked;
+  pendingGodMode = enabled;
+  syncGodToggle(enabled);
+  if (!sessionId) return;
+  await fetch(`/api/game/${sessionId}/control`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action: "god-mode", enabled}),
+  });
+  logKey = "";
+  poll();
+  openSeats.forEach((seat) => loadPlayer(seat));
+});
+
+function syncGodToggle(enabled) {
+  $("godToggle").checked = enabled;
+  $("godWrap").classList.toggle("on", enabled);
+  $("godWrap").title = enabled
+    ? "God mode on: every hole card and every AI's reasoning are visible"
+    : "God mode off: you only see what a player at the table would see";
+}
+$("log").addEventListener("click", (e) => {
+  const row = e.target.closest(".lg[data-i]");
+  if (!row) return;
+  const index = Number(row.dataset.i);
+  viewIndex = viewIndex === index ? null : index;
+  render();
+});
+
+$("lastHand").addEventListener("click", () => {
+  // Jump the rail to the last action of that hand: the detail is all there.
+  const actions = (snap && snap.actions) || [];
+  if (!actions.length) return;
+  viewIndex = actions.length - 1;
+  render();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, select, textarea")) return;
+  if (e.key === " " || e.key === "Enter") {
+    // Space advances past a finished hand; otherwise it pauses.
+    if ($("resultPanel").classList.contains("on")) { e.preventDefault(); skipHold(); return; }
+    if (!$("btnPause").disabled) { e.preventDefault(); $("btnPause").click(); }
+  } else if (e.key === "ArrowRight" && !$("btnStep").disabled) $("btnStep").click();
+  else if (e.key === "Escape") {
+    document.querySelectorAll(".scrim.on").forEach((s) => s.classList.remove("on"));
+    [...openSeats].forEach(closePlayer);
+  }
+});
+
+/* --------------------------------------------------------------- modals */
+document.querySelectorAll(".scrim").forEach((scrim) => {
+  scrim.addEventListener("click", (e) => { if (e.target === scrim) scrim.classList.remove("on"); });
+});
+$("btnSettings").addEventListener("click", () => {
+  renderProviders();
+  renderPersonas();
+  $("settings").classList.add("on");
+});
+$("btnCloseSettings").addEventListener("click", () => $("settings").classList.remove("on"));
+document.querySelectorAll(".tabbar button").forEach((b) => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".tabbar button").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("on", p.id === "pane-" + b.dataset.pane));
+  });
+});
+function renderSpeedLabel() {
+  const value = parseFloat($("fSpeed").value);
+  $("fSpeedVal").textContent = value <= 0
+    ? "0s (as fast as the models allow)"
+    : `${value.toFixed(1)}s between decisions`;
+}
+$("fSpeed").addEventListener("input", renderSpeedLabel);
+renderSpeedLabel();
+
+/* ------------------------------------------------------------ providers */
+function renderProviders() {
+  const box = $("provList");
+  if (!providers.length) {
+    box.innerHTML = '<div class="hint">No providers yet. Add one below with its base URL and key.</div>';
+    return;
+  }
+  box.innerHTML = providers.map((p) => `
+    <div class="prov" data-id="${p.id}">
+      <div>
+        <div class="nm">${esc(p.label)}
+          ${p.has_key ? '<span class="badge hot">key set</span>' : '<span class="badge">no key</span>'}
+          <span class="badge">${esc(p.id)}</span>
+          ${p.reasoning ? '<span class="badge">reasoning</span>' : ""}
+        </div>
+        <div class="dt">${esc(p.model)} \u00b7 ${esc(p.base_url)}</div>
+      </div>
+      <div class="acts">
+        <button class="btn sm" data-edit="${p.id}">Edit</button>
+        <button class="btn sm danger" data-del="${p.id}">Delete</button>
+        <button class="btn sm" data-test="${p.id}">Test</button>
+      </div>
+    </div>`).join("");
+
+  box.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => startEditProvider(b.dataset.edit)));
+  box.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Delete this provider?")) return;
+    const r = await fetch(`/api/providers/${b.dataset.del}`, {method: "DELETE"});
+    if (!r.ok) { $("provErr").textContent = (await r.json()).error || "could not delete"; return; }
+    await loadProviders();
+    if (editingProvider === b.dataset.del) resetProviderForm();
+    renderProviders();
+  }));
+  box.querySelectorAll("[data-test]").forEach((b) => b.addEventListener("click", async () => {
+    const p = providers.find((x) => x.id === b.dataset.test);
+    $("provErr").innerHTML = "Testing\u2026";
+    const r = await fetch("/api/models/test", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({provider: p.id}),
+    });
+    const data = await r.json();
+    $("provErr").innerHTML = data.ok
+      ? `<span class="ok">${esc(p.label)} accepted the key</span>`
+      : esc(data.error || "test failed");
+  }));
+}
+
+function startEditProvider(id) {
+  const p = providers.find((x) => x.id === id);
+  if (!p) return;
+  editingProvider = id;
+  $("provFormTitle").textContent = `Edit ${p.label}`;
+  $("pLabel").value = p.label;
+  $("pModel").value = p.model;
+  $("pBase").value = p.base_url;
+  $("pKey").value = "";
+  $("pKey").placeholder = p.has_key ? "leave blank to keep the stored key" : "sk-...";
+  $("pTemp").value = p.temperature;
+  $("pMax").value = p.max_tokens;
+  $("pReasoning").checked = !!p.reasoning;
+  $("btnProvSave").textContent = "Save changes";
+  $("btnProvCancel").style.display = "inline-block";
+  $("provErr").textContent = "";
+}
+function resetProviderForm() {
+  editingProvider = null;
+  $("provFormTitle").textContent = "Add a provider";
+  ["pLabel","pModel","pBase","pKey"].forEach((id) => { $(id).value = ""; });
+  $("pKey").placeholder = "sk-...";
+  $("pTemp").value = 0.95;
+  $("pMax").value = 2500;
+  $("pReasoning").checked = false;
+  $("btnProvSave").textContent = "Add provider";
+  $("btnProvCancel").style.display = "none";
+  $("provErr").textContent = "";
+}
+$("btnProvCancel").addEventListener("click", resetProviderForm);
+$("btnProvSave").addEventListener("click", async () => {
+  const body = {
+    label: $("pLabel").value.trim(),
+    model: $("pModel").value.trim(),
+    base_url: $("pBase").value.trim(),
+    temperature: parseFloat($("pTemp").value) || 0.95,
+    max_tokens: parseInt($("pMax").value, 10) || 2500,
+    reasoning: $("pReasoning").checked,
+  };
+  if ($("pKey").value.trim()) body.api_key = $("pKey").value.trim();
+  const url = editingProvider ? `/api/providers/${editingProvider}` : "/api/providers";
+  const r = await fetch(url, {
+    method: editingProvider ? "PATCH" : "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) { $("provErr").textContent = data.error || "could not save"; return; }
+  await loadProviders();
+  resetProviderForm();
+  renderProviders();
+  syncSeatForm();
+});
+$("btnProvTest").addEventListener("click", async () => {
+  const body = {
+    provider: editingProvider || $("pModel").value.trim(),
+    api_key: $("pKey").value.trim(),
+    base_url: $("pBase").value.trim(),
+  };
+  if (!editingProvider) {
+    // Testing an unsaved provider: fall back to the raw URL with the typed key.
+    if (!body.base_url || !body.api_key) {
+      $("provErr").textContent = "Enter a base URL and key to test an unsaved provider.";
+      return;
+    }
+    $("provErr").innerHTML = "Testing\u2026";
+    try {
+      const r = await fetch(body.base_url.replace(/\/$/, "") + "/models", {
+        headers: {Authorization: `Bearer ${body.api_key}`},
+      });
+      $("provErr").innerHTML = r.ok
+        ? '<span class="ok">Endpoint accepted the key</span>'
+        : `<span style="color:var(--red)">Endpoint returned HTTP ${r.status}</span>`;
+    } catch (e) {
+      $("provErr").innerHTML = `<span style="color:var(--red)">${esc(String(e))}</span>`;
+    }
+    return;
+  }
+  $("provErr").innerHTML = "Testing\u2026";
+  const r = await fetch("/api/models/test", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({provider: body.provider}),
+  });
+  const data = await r.json();
+  $("provErr").innerHTML = data.ok ? '<span class="ok">Key accepted</span>' : esc(data.error || "failed");
+});
+
+async function loadProviders() {
+  const r = await fetch("/api/models");
+  if (!r.ok) return;
+  const data = await r.json();
+  providers = data.providers || [];
+  maxSeats = data.max_seats || 6;
+  defaultProvider = data.default_provider || "";
+  const sel = $("seProvider");
+  sel.innerHTML = providers.map((p) => {
+    const flags = [];
+    if (!p.has_key) flags.push("no key");
+    if (p.reasoning) flags.push("reasoning");
+    return `<option value="${p.id}">${esc(p.label)} \u2014 ${esc(p.model)}${flags.length ? " (" + flags.join(", ") + ")" : ""}</option>`;
+  }).join("");
+}
+
+/* -------------------------------------------------------------- personas */
+let editingPersona = null;
+
+async function loadPersonas() {
+  const r = await fetch("/api/personas");
+  if (!r.ok) return;
+  PERSONAS = (await r.json()).personas || [];
+  renderPersonaChips();
+  renderPersonaTemplates();
+}
+
+/** Re-render the seat editor's persona chips from the catalogue. */
+function renderPersonaChips() {
+  $("sePersona").innerHTML = PERSONAS.map((p) => `
+    <span class="chip" data-key="${p.key}" title="${esc(p.style)}">
+      <span>${esc(p.name)}</span><span class="tl">${esc(p.tagline)}</span>
+      ${p.custom ? '<span class="tl">\u00b7 custom</span>' : ""}
+    </span>`).join("");
+  $("sePersona").querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      $("sePersona").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
+      const meta = personaMeta(chip.dataset.key);
+      if (meta && !$("seName").value.trim()) $("seName").placeholder = meta.name;
+    });
+  });
+}
+
+function renderPersonaTemplates() {
+  const blank = '<option value="">Blank (write it myself)</option>';
+  $("peTemplate").innerHTML = blank + PERSONAS.map((p) =>
+    `<option value="${p.key}">${esc(p.name)} \u2014 ${esc(p.tagline)}</option>`).join("");
+}
+
+function renderPersonas() {
+  const box = $("personaList");
+  box.innerHTML = PERSONAS.map((p) => `
+    <div class="prov" data-key="${p.key}">
+      <div>
+        <div class="nm">${esc(p.name)}
+          <span class="badge">${esc(p.key)}</span>
+          ${p.custom ? '<span class="badge hot">custom</span>'
+                     : '<span class="badge builtin">template</span>'}
+        </div>
+        <div class="dt">${esc(p.tagline)} \u00b7 agg ${p.aggression} \u00b7 tight ${p.tightness} \u00b7 bluff ${p.bluff_frequency}</div>
+      </div>
+      <div class="acts">
+        ${p.custom
+          ? `<button class="btn sm" data-edit="${p.key}">Edit</button>
+             <button class="btn sm danger" data-del="${p.key}">Delete</button>`
+          : `<button class="btn sm" data-clone="${p.key}">Duplicate</button>`}
+      </div>
+    </div>`).join("");
+
+  box.querySelectorAll("[data-edit]").forEach((b) =>
+    b.addEventListener("click", () => startEditPersona(b.dataset.edit)));
+  box.querySelectorAll("[data-clone]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const r = await fetch(`/api/personas/${b.dataset.clone}/clone`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({}),
+      });
+      const data = await r.json();
+      if (!r.ok) { $("peErr").textContent = data.error || "could not duplicate"; return; }
+      await loadPersonas();
+      renderPersonas();
+      startEditPersona(data.persona.key);
+    }));
+  box.querySelectorAll("[data-del]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const used = seatedPlan().some((s) => s.persona === b.dataset.del);
+      if (used && !confirm("This persona is seated at the table. Delete anyway?")) return;
+      if (!used && !confirm("Delete this persona?")) return;
+      const r = await fetch(`/api/personas/${b.dataset.del}`, {method: "DELETE"});
+      if (!r.ok) { $("peErr").textContent = (await r.json()).error || "could not delete"; return; }
+      if (editingPersona === b.dataset.del) resetPersonaForm();
+      await loadPersonas();
+      renderPersonas();
+    }));
+}
+
+function fillPersonaForm(p) {
+  $("peName").value = p.name;
+  $("peTagline").value = p.tagline;
+  $("peStyle").value = p.style;
+  $("peVoice").value = p.voice;
+  $("peShort").value = p.short || "";
+  $("peAgg").value = p.aggression;
+  $("peTight").value = p.tightness;
+  $("peBluff").value = p.bluff_frequency;
+  $("peTemp").value = p.temperature;
+  syncPersonaSliders();
+}
+
+function syncPersonaSliders() {
+  $("peAggVal").textContent = (+$("peAgg").value).toFixed(2);
+  $("peTightVal").textContent = (+$("peTight").value).toFixed(2);
+  $("peBluffVal").textContent = (+$("peBluff").value).toFixed(2);
+  $("peTempVal").textContent = (+$("peTemp").value).toFixed(2);
+}
+["peAgg", "peTight", "peBluff", "peTemp"].forEach((id) =>
+  $(id).addEventListener("input", syncPersonaSliders));
+
+function startEditPersona(key) {
+  const p = personaMeta(key);
+  if (!p || !p.custom) return;
+  editingPersona = key;
+  $("peFormTitle").textContent = `Edit ${p.name}`;
+  $("peTemplate").disabled = true;
+  $("peTemplate").value = "";
+  fillPersonaForm(p);
+  $("btnPersonaSave").textContent = "Save changes";
+  $("btnPersonaCancel").style.display = "inline-block";
+  $("peErr").textContent = "";
+  $("pane-personas").scrollIntoView({block: "nearest"});
+}
+
+function resetPersonaForm() {
+  editingPersona = null;
+  $("peFormTitle").textContent = "New persona";
+  $("peTemplate").disabled = false;
+  $("peTemplate").value = "";
+  $("peName").value = "";
+  $("peTagline").value = "";
+  $("peStyle").value = "";
+  $("peVoice").value = "";
+  $("peShort").value = "";
+  $("peAgg").value = 0.5;
+  $("peTight").value = 0.5;
+  $("peBluff").value = 0.2;
+  $("peTemp").value = 0.9;
+  syncPersonaSliders();
+  $("btnPersonaSave").textContent = "Create persona";
+  $("btnPersonaCancel").style.display = "none";
+  $("peErr").textContent = "";
+}
+
+// Picking a template prefills the form so it can be edited before saving.
+$("peTemplate").addEventListener("change", (e) => {
+  const p = personaMeta(e.target.value);
+  if (!p) { resetPersonaForm(); return; }
+  fillPersonaForm(p);
+  $("peName").value = `${p.name} (copy)`;
+  $("peErr").textContent = "";
+});
+
+$("btnPersonaCancel").addEventListener("click", resetPersonaForm);
+
+$("btnPersonaSave").addEventListener("click", async () => {
+  const body = {
+    name: $("peName").value.trim(),
+    tagline: $("peTagline").value.trim(),
+    style: $("peStyle").value.trim(),
+    voice: $("peVoice").value.trim(),
+    short: $("peShort").value.trim(),
+    aggression: parseFloat($("peAgg").value),
+    tightness: parseFloat($("peTight").value),
+    bluff_frequency: parseFloat($("peBluff").value),
+    temperature: parseFloat($("peTemp").value),
+  };
+  if (!body.name) { $("peErr").textContent = "Give the persona a name."; return; }
+  if (!body.style.trim()) {
+    $("peErr").textContent = "The system prompt is what shapes its play \u2014 please write one.";
+    return;
+  }
+  const url = editingPersona ? `/api/personas/${editingPersona}` : "/api/personas";
+  if (!editingPersona && $("peTemplate").value) body.template = $("peTemplate").value;
+  const r = await fetch(url, {
+    method: editingPersona ? "PATCH" : "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) { $("peErr").textContent = data.error || "could not save"; return; }
+  await loadPersonas();
+  renderPersonas();
+  resetPersonaForm();
+  // Keep any seat that used the old key pointing at the same persona.
+  if (editingPersona) savePlan();
+  refreshSeatingUi();
+});
+
+// Start the countdown ticker once; it is a no-op when no result is showing.
+startHoldTicker();
+
+/* ------------------------------------------------------------- new game */
+$("btnNew").addEventListener("click", async () => {
+  if (snap && !snap.finished) {
+    // Starting over: the seat plan stays, a fresh game begins.
+  }
+  const blinds = ($("fBlinds").value || "10/20").split("/");
+  const sb = parseInt(blinds[0], 10), bb = parseInt(blinds[1] ?? blinds[0], 10);
+  const plan = seatedPlan();
+  if (plan.length < 2) return;
+  const payload = {
+    seats: plan.map((s) => ({
+      seat: s.seat, kind: s.kind, persona: s.persona || "",
+      provider: s.provider || "", name: s.name || "",
+    })),
+    starting_chips: parseInt($("fChips").value, 10) || 1000,
+    small_blind: isNaN(sb) ? 10 : sb,
+    big_blind: isNaN(bb) ? 20 : bb,
+    max_hands: parseInt($("fHands").value, 10) || {{ default_max_hands }},
+    seed: $("fSeed").value.trim() === "" ? null : parseInt($("fSeed").value, 10),
+    offline: $("fOffline").checked,
+    // The top-bar switch is the single source of truth for god mode.
+    reveal_all: $("godToggle").checked,
+    speed_seconds: parseFloat($("fSpeed").value),
+  };
+  $("btnNew").disabled = true;
+  try {
+    const r = await fetch("/api/game", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (data.error) { $("startErr").textContent = data.error; return; }
+    [...openSeats].forEach(closePlayer);
+    sessionId = data.session.session;
+    snap = data.session;
+    viewIndex = null; logKey = "";
+    syncGodToggle(!!snap.god_mode);
+    render();
+    startPolling();
+  } catch (e) {
+    $("startErr").textContent = "Request failed: " + e;
+  } finally {
+    $("btnNew").disabled = false;
+  }
+});
+
+/* ------------------------------------------------------ floating players */
+function togglePlayer(seat) { openSeats.has(seat) ? closePlayer(seat) : openPlayer(seat); }
+
+function openPlayer(seat) {
+  const player = (snap.players || []).find((p) => p.seat === seat);
+  if (!player || !player.seated) return;
+  openSeats.add(seat);
+  const el = document.createElement("div");
+  el.className = "pcard";
+  el.dataset.seat = seat;
+  const offset = openSeats.size - 1;
+  el.style.left = `${Math.min(window.innerWidth - 344, 40 + offset * 26)}px`;
+  el.style.top = `${70 + offset * 22}px`;
+  el.innerHTML = `
+    <div class="pc-head" data-drag="1">
+      <div class="av">${esc((player.persona_name || player.name || "?").slice(0, 1))}</div>
+      <div class="id"><div class="n">${esc(player.name)}</div>
+        <div class="s">${esc(player.persona_name || player.persona || "")}</div></div>
+      ${player.is_ai || player.seat === snap.human_seat
+        ? '<button class="pc-edit" title="Change this seat">&#9998;</button>'
+        : ""}
+      <button class="x" title="Close">&times;</button>
+    </div>
+    <div class="pc-stats"></div>
+    <div class="pc-tabs">
+      <button class="pc-tab on" data-tab="history">History</button>
+      <button class="pc-tab" data-tab="profile">Profile</button>
+      <button class="pc-tab" data-tab="context">Context</button>
+    </div>
+    <div class="pc-body"><div class="hint">Loading\u2026</div></div>`;
+  document.body.appendChild(el);
+  el.querySelector(".x").addEventListener("click", () => closePlayer(seat));
+  const edit = el.querySelector(".pc-edit");
+  if (edit) {
+    edit.addEventListener("click", () => {
+      closePlayer(seat);
+      openSeatEditor(seat);
+    });
+  }
+  el.querySelectorAll(".pc-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      el.querySelectorAll(".pc-tab").forEach((t) => t.classList.toggle("on", t === tab));
+      el.dataset.tab = tab.dataset.tab;
+      loadPlayer(seat);
+    });
+  });
+  makeDraggable(el, el.querySelector(".pc-head"));
+  el.dataset.tab = "history";
+  loadPlayer(seat);
+  render();
+}
+
+function closePlayer(seat) {
+  openSeats.delete(seat);
+  const el = document.querySelector(`.pcard[data-seat="${seat}"]`);
+  if (el) el.remove();
+  render();
+}
+
+function makeDraggable(el, handle) {
+  let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
+  handle.addEventListener("mousedown", (e) => {
+    if (e.target.closest("button")) return;
+    dragging = true; sx = e.clientX; sy = e.clientY;
+    ox = parseFloat(el.style.left) || 0; oy = parseFloat(el.style.top) || 0;
+    handle.style.cursor = "grabbing"; e.preventDefault();
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    el.style.left = `${Math.max(4, Math.min(window.innerWidth - 100, ox + e.clientX - sx))}px`;
+    el.style.top = `${Math.max(4, Math.min(window.innerHeight - 60, oy + e.clientY - sy))}px`;
+  });
+  window.addEventListener("mouseup", () => { dragging = false; handle.style.cursor = "grab"; });
+}
+
+async function loadPlayer(seat) {
+  const el = document.querySelector(`.pcard[data-seat="${seat}"]`);
+  if (!el) return;
+  const id = sessionId || (snap && snap.session);
+  if (!id) return;
+  sessionId = id;
+  const tab = el.dataset.tab || "history";
+  const wantContext = tab === "context" ? "?context=1" : "";
+  try {
+    const r = await fetch(`/api/game/${id}/player/${seat}${wantContext}`);
+    const data = await r.json();
+    if (data.error) {
+      el.querySelector(".pc-body").innerHTML = `<div class="hint">${esc(data.error)}</div>`;
+      return;
+    }
+    renderPlayerCard(seat, data.player);
+  } catch (e) {
+    const body = el.querySelector(".pc-body");
+    if (body && body.textContent.startsWith("Loading")) {
+      body.innerHTML = '<div class="hint">Could not load this player.</div>';
+    }
+  }
+}
+
+function renderPlayerCard(seat, p) {
+  const el = document.querySelector(`.pcard[data-seat="${seat}"]`);
+  if (!el) return;
+  el.querySelector(".av").textContent = (p.persona_name || p.name || "?").slice(0, 1);
+  el.querySelector(".n").textContent = p.name;
+  el.querySelector(".s").textContent = [p.persona_name, p.is_ai ? p.model : "human"]
+    .filter(Boolean).join(" \u00b7 ");
+
+  const s = p.stats || {};
+  const stats = [
+    ["Chips", p.chips, "green"], ["In pot", p.hand_contribution || 0, "gold"],
+    ["VPIP", (s.vpip ?? 0) + "%", ""], ["Decisions", s.decisions || 0, ""],
+    ["Fold", s.fold || 0, ""], ["Call", s.call || 0, ""],
+    ["Raise", (s.raise || 0) + (s.bet || 0), "gold"], ["All in", s.all_in || 0, ""],
+  ];
+  el.querySelector(".pc-stats").innerHTML = stats.map(([k, v, c]) =>
+    `<div class="pc-stat"><div class="k">${k}</div><div class="v ${c}">${esc(v)}</div></div>`).join("");
+
+  const body = el.querySelector(".pc-body");
+  const tab = el.dataset.tab || "history";
+
+  if (tab === "history") {
+    const cards = p.hole_cards
+      ? `<div class="pc-hand">${cardsHtml(p.hole_cards, "sm")}<span class="str">${esc(p.hand_strength || "")}</span></div>`
+      : "";
+    const list = (p.history || []).slice().reverse();
+    body.innerHTML = cards + (list.length ? list.map((h) => {
+      const kind = (h.action || "").split(" ")[0];
+      return `<div class="rec">
+        <span class="no">#${h.seq ?? "\u00b7"}</span>
+        <div>
+          <div class="t">Hand ${h.hand} \u00b7 ${esc(h.street_label || h.street || "")} \u00b7 pot ${h.pot ?? "?"}</div>
+          <div class="a ${kind}">${esc(h.action)}</div>
+          ${h.speech ? `<div class="q">&ldquo;${esc(h.speech)}&rdquo;</div>` : ""}
+          ${h.thought ? `<div class="w">${esc(h.thought)}</div>` : ""}
+        </div>
+      </div>`;
+    }).join("") : '<div class="hint">No decisions yet.</div>');
+  } else if (tab === "profile") {
+    const persona = p.persona_profile;
+    if (!persona) { body.innerHTML = '<div class="hint">Human seat \u2014 no AI profile.</div>'; return; }
+    const bar = (label, v) => `<div style="margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between"><span class="hint">${label}</span><b>${v.toFixed(2)}</b></div>
+      <div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div></div>`;
+    body.innerHTML = `
+      <div style="margin-bottom:11px"><div class="w">${esc(persona.style)}</div></div>
+      <div style="margin-bottom:14px"><b>Voice</b><div class="w">${esc(persona.voice)}</div></div>
+      ${bar("Aggression", persona.aggression)}
+      ${bar("Tightness", persona.tightness)}
+      ${bar("Bluff frequency", persona.bluff_frequency)}
+      <div class="hint">temperature ${persona.temperature}</div>`;
+  } else {
+    const ctx = p.context;
+    const mem = p.memory || {};
+    if (!ctx || !ctx.length) { body.innerHTML = '<div class="hint">No context recorded for this seat.</div>'; return; }
+    body.innerHTML = `
+      <div class="hint" style="margin-bottom:8px">
+        This seat's private thread. <span class="sent">Highlighted</span> entries are the ones sent
+        to the model (opening prompt + last ${mem.turns_kept} turns); the faded ones are kept for review.
+        Recorded <b>${mem.turns_recorded}</b> turns, sending <b>${mem.messages_sent}</b> messages.
+      </div>` + ctx.map((m) => `
+      <div class="ctx ${m.role} ${m.sent ? "" : "faded"}">
+        <span class="role">${m.role === "assistant" ? "its reply" : (m.kind === "opening" ? "opening prompt" : "state")}${m.sent ? ' <span class="sent">\u00b7 sent</span>' : ""}</span>${esc(m.content)}
+      </div>`).join("");
+  }
+}
+
+/* ------------------------------------------------------------------ boot */
+(async function boot() {
+  await loadPersonas();
+  await loadProviders();
+  seats = loadPlan()
+    .filter((s) => s.seat < maxSeats)
+    .map((s) => ({
+      seat: s.seat, kind: s.kind, persona: s.persona || "",
+      provider: s.provider || defaultProvider, name: s.name || "",
+    }));
+  syncSeatForm();
+  syncPersonaSliders();
+
+  try {
+    // ?session=<id> opens one specific game; otherwise follow the latest.
+    const wanted = new URLSearchParams(location.search).get("session");
+    const r = wanted
+      ? await fetch(`/api/game/${encodeURIComponent(wanted)}`)
+      : await fetch("/api/game");
+    if (r.ok) {
+      const data = await r.json();
+      if (data.session) {
+        snap = data.session;
+        sessionId = snap.session;
+        syncGodToggle(!!snap.god_mode);
+        render();
+        startPolling();
+        return;
+      }
+    }
+  } catch (e) { /* no game yet */ }
+  syncGodToggle(false);
+  renderPlanPreview();
+})();
+</script>
+</body>
+</html>
