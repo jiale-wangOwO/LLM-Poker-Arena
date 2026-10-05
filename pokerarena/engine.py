@@ -132,6 +132,30 @@ class LegalActions:
     all_in_to: int | None
     """Total street commitment if the player shoves, or None if chips are 0."""
 
+    def __post_init__(self) -> None:
+        """A menu that offers an impossible range is worse than no menu.
+
+        The arena shows these numbers to a model and lets it choose one, so an
+        inverted range ("bet 20-10") is offered as a legal action and then
+        refused by the engine -- the model is punished for an engine bug.  This
+        is checked on every construction rather than trusted.
+        """
+        for flag, low, high, label in (
+            (self.can_bet, self.min_bet_to, self.max_bet_to, "bet"),
+            (self.can_raise, self.min_raise_to, self.max_raise_to, "raise"),
+        ):
+            if flag and low > high:
+                raise IllegalAction(
+                    f"impossible {label} range for seat {self.seat}: {low}-{high}"
+                )
+        if self.can_check and self.can_call:
+            raise IllegalAction(
+                f"seat {self.seat} cannot both check and call "
+                f"({self.call_cost} to call)"
+            )
+        if self.all_in_to is not None and self.all_in_to <= 0:
+            raise IllegalAction(f"seat {self.seat} has a non-positive all-in")
+
     def to_dict(self) -> dict:
         return {
             "can_fold": self.can_fold,
@@ -254,6 +278,21 @@ class Player:
     def new_street(self) -> None:
         self.street_bet = 0
         self.has_acted = False
+
+    def receive(self, amount: int) -> None:
+        """Give chips back to a player, clearing a stale all-in status.
+
+        ``ALL_IN`` describes "has nothing left to bet", not "shoved at some point
+        in this hand".  Without this, a player who shoved and then *won* sits
+        there marked all-in while holding chips: the table reads wrongly during
+        the end-of-hand pause, and the prompt for the next decision would claim
+        the seat is all-in when it can still bet.
+        """
+        if amount <= 0:
+            return
+        self.chips += amount
+        if self.status is PlayerStatus.ALL_IN and self.chips > 0:
+            self.status = PlayerStatus.ACTIVE
 
     def new_hand(self) -> None:
         self.hole_cards = []
@@ -698,13 +737,24 @@ class Table:
         )
 
     # -- legal actions ------------------------------------------------------
-    def legal_actions(self, seat: int) -> LegalActions:
-        """Everything ``seat`` may legally do right now."""
+    def _require_turn(self, seat: int) -> Player:
+        """Assert that ``seat`` is the player to act, and able to act.
+
+        Every entry point that accepts a decision goes through this, so an
+        out-of-turn action is impossible rather than merely unusual.  Two
+        players cannot both be "the actor", and the prompt/turn ordering that
+        the arena depends on would be meaningless if they could.
+        """
         player = self.players[seat]
         if self.actor != seat or player.status is not PlayerStatus.ACTIVE:
             raise IllegalAction(
                 f"{player.name} cannot act right now (actor={self.actor}, status={player.status.value})"
             )
+        return player
+
+    def legal_actions(self, seat: int) -> LegalActions:
+        """Everything ``seat`` may legally do right now."""
+        player = self._require_turn(seat)
 
         to_call = max(0, self.current_bet - player.street_bet)
         call_cost = min(to_call, player.chips)
@@ -716,10 +766,16 @@ class Table:
         max_raise_to = player.street_bet + player.chips
         can_raise = raise_allowed and max_raise_to > self.current_bet
         # A raise that cannot reach the minimum is still permitted as an all-in
-        # shove, but it does not reopen the betting.
+        # shove, but it does not reopen the betting.  Clamping the minimum to what
+        # the player can actually commit is what keeps ``min <= max`` true.
         min_raise_to = min(min_raise_to, max_raise_to)
 
+        # An opening bet must reach the big blind, so the minimum here is the
+        # clamped minimum *or* the big blind -- whichever the player can afford.
+        # Using the raw big blind produced an inverted menu ("bet 20-10") for a
+        # short stack, and the engine then refused the very bet it had offered.
         can_bet = self.current_bet == 0 and can_raise
+        min_bet_to = min(max(self.big_blind, min_raise_to), max_raise_to) if can_bet else 0
 
         return LegalActions(
             seat=seat,
@@ -730,7 +786,7 @@ class Table:
             call_is_all_in=can_call and call_cost >= player.chips,
             can_bet=can_bet,
             can_raise=can_raise,
-            min_bet_to=self.big_blind if can_bet else 0,
+            min_bet_to=min_bet_to,
             max_bet_to=max_raise_to if can_bet else 0,
             min_raise_to=min_raise_to if can_raise else 0,
             max_raise_to=max_raise_to if can_raise else 0,
@@ -739,9 +795,16 @@ class Table:
 
     def normalize_action(self, seat: int, action: Action) -> Action:
         """Validate and canonicalise a decision, raising :class:`IllegalAction`."""
+        # Checked before anything else: an action from a seat that is not to act
+        # must be refused outright, never quietly applied.
+        player = self._require_turn(seat)
         legal = self.legal_actions(seat)
-        player = self.players[seat]
         kind = action.type
+
+        if action.amount is not None and action.amount < 0:
+            # Rejected rather than clamped: a negative amount means the caller is
+            # confused, and silently reinterpreting it hides the bug.
+            raise IllegalAction(f"Negative amount {action.amount} is not an action")
 
         if kind is ActionType.FOLD:
             return Action(ActionType.FOLD, thought=action.thought, speech=action.speech, source=action.source)
@@ -978,7 +1041,7 @@ class Table:
             reason="all_folded",
             hand=None,
         )
-        winner.chips += total
+        winner.receive(total)
         self.emit(HAND_END, reason="all_folded", winner=winner.seat, pot=total)
         self.street = Street.COMPLETE
         self.actor = None
@@ -1026,7 +1089,7 @@ class Table:
 
         for refund in result.refunds:
             player = self.players[refund.seat]
-            player.chips += refund.amount
+            player.receive(refund.amount)
             self.emit(
                 POT_AWARDED,
                 seat=refund.seat,
@@ -1038,7 +1101,7 @@ class Table:
 
         for payout in result.payouts:
             player = self.players[payout.seat]
-            player.chips += payout.amount
+            player.receive(payout.amount)
             label = result.pots[payout.pot_index].name if payout.pot_index >= 0 else "pot"
             self.emit(
                 POT_AWARDED,

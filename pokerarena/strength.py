@@ -16,9 +16,15 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from .cards import Card, evaluate
+from .cards import Card, _score_of_codes, evaluate
 
 RANK_CHARS = "23456789TJQKA"
+
+#: The 52 cards, built once.  Equity sampling reads this far more often than it
+#: builds anything, so re-creating it per trial was pure overhead.
+_DECK_CACHE: tuple[Card, ...] = tuple(
+    Card(rank, suit) for rank in range(13) for suit in range(4)
+)
 
 # --------------------------------------------------------------------------
 # Chen-formula-ish preflop scoring
@@ -164,6 +170,231 @@ def postflop_strength(hole: list[Card], board: list[Card]) -> float:
 
 def strength(hole: list[Card], board: list[Card]) -> float:
     return postflop_strength(hole, board) if len(board) >= 3 else preflop_strength(hole)
+
+
+# --------------------------------------------------------------------------
+# Equity against a range
+# --------------------------------------------------------------------------
+# The functions above answer "how good is this hand?", which is the right anchor
+# for a prompt but the *wrong* input for a pot-odds decision.  A gutshot with two
+# overcards is a weak *made* hand (0.08 by category) yet frequently has 30-40%
+# equity, and folding it when the price is 20:1 is a blunder no player makes.
+#
+# Equity is measured against the range an opponent could actually hold, not a
+# random hand: against a random hand almost everything has ~50%, which would
+# make every pot-odds call look correct.
+_STANDARD_RANGE_RANK = 0.45   # the better ~45% of starting hands
+_TIGHT_RANGE_RANK = 0.22      # a raise represents roughly the better fifth
+
+# Bounds on the work per lookup.  A pot-odds decision needs only a rough equity:
+# the caller compares it against a price with a 15% safety margin, and being
+# wrong by 3 points almost never changes whether the call is +EV.  Precision
+# costs real time -- a whole game's runtime was dominated by this loop -- so the
+# trial count is set for decisions, not for a published number.  ~260 trials
+# puts the standard error near 3%.
+_MIN_TRIALS = 120
+_MAX_TRIALS = 260
+_TARGET_STDERR = 0.031
+
+
+@lru_cache(maxsize=4096)
+def _range_tokens(rank: float) -> tuple[str, ...]:
+    """Starting hands at or above ``rank`` percentile, strongest first."""
+    total = len(EQUITY_ORDER)
+    keep = max(4, int(total * max(0.01, min(1.0, 1.0 - rank))))
+    return EQUITY_ORDER[:keep]
+
+
+@lru_cache(maxsize=16384)
+def _equity_cached(hole_codes: tuple[str, ...], board_codes: tuple[str, ...],
+                   rank: float) -> float:
+    """Monte-Carlo equity, memoised on the exact cards and range.
+
+    The inner loop is written for throughput rather than clarity, because this
+    runs once per post-flop decision and is easy to make 20x slower by accident:
+    re-filtering the deck per trial, or scanning a suit to find a rank, dominated
+    the actual hand evaluation.  Cards are indexed once into rank/suit tables and
+    the runout is drawn directly instead.
+    """
+    import random
+
+    hole = [Card.from_str(code) for code in hole_codes]
+    board = [Card.from_str(code) for code in board_codes]
+    if len(hole) != 2:
+        return 0.0
+
+    known = {c.code for c in hole} | {c.code for c in board}
+    tokens = _range_tokens(rank)
+    rng = random.Random(hash((hole_codes, board_codes, rank)) & 0xFFFFFFFF)
+
+    # Index the live cards once: by (rank, suit) for exact lookups, and by rank
+    # for picking a pair, and by suit holding the rank->card map.
+    live = [c for c in _DECK_CACHE if c.code not in known]
+    by_suit: dict[int, dict[int, Card]] = {}
+    by_rank: dict[int, list[Card]] = {}
+    for card in live:
+        by_suit.setdefault(card.suit, {})[card.rank] = card
+        by_rank.setdefault(card.rank, []).append(card)
+    suits = list(by_suit)
+    need_runout = 5 - len(board)
+
+    def draw_opponent() -> tuple[Card, Card] | None:
+        for _ in range(6):
+            token = tokens[rng.randrange(len(tokens))]
+            if len(token) == 2:
+                # A pair: both cards share the rank we want.
+                rank_index = RANK_CHARS.index(token[0])
+                candidates = by_rank.get(rank_index)
+                if candidates and len(candidates) >= 2:
+                    return candidates[0], candidates[1]
+                continue
+            high = RANK_CHARS.index(token[0])
+            low = RANK_CHARS.index(token[1])
+            if token[2] == "s":
+                suit = suits[rng.randrange(len(suits))]
+                column = by_suit[suit]
+                first, second = column.get(high), column.get(low)
+                if first is not None and second is not None:
+                    return first, second
+                continue
+            suit_a = suits[rng.randrange(len(suits))]
+            suit_b = suits[rng.randrange(len(suits))]
+            if suit_a == suit_b:
+                continue
+            first, second = by_suit[suit_a].get(high), by_suit[suit_b].get(low)
+            if first is not None and second is not None:
+                return first, second
+        return None
+
+    wins = ties = 0
+    trials = 0
+    # Hoisted: these do not change between trials, and rebuilding them per trial
+    # was a measurable share of the work.
+    hole_codes_sorted = tuple(sorted(c.code for c in hole))
+    board_codes_sorted = tuple(c.code for c in board)
+    score = _score_of_codes
+    while trials < _MAX_TRIALS:
+        for _ in range(60):
+            opponent = draw_opponent()
+            if opponent is None:
+                continue
+            # Draw the runout from what is left, without rebuilding a deck list.
+            blocked = known | {opponent[0].code, opponent[1].code}
+            runout: list[Card] = []
+            while len(runout) < need_runout:
+                card = live[rng.randrange(len(live))]
+                if card.code not in blocked:
+                    blocked.add(card.code)
+                    runout.append(card)
+            runout_codes = tuple(sorted(c.code for c in runout))
+            final_board = board_codes_sorted + runout_codes
+
+            mine = score(tuple(sorted(hole_codes_sorted + final_board)))
+            theirs = score(tuple(sorted(
+                (opponent[0].code, opponent[1].code) + final_board
+            )))
+            if mine > theirs:
+                wins += 1
+            elif mine == theirs:
+                ties += 1
+            trials += 1
+
+        if trials >= _MIN_TRIALS:
+            p = (wins + ties / 2) / trials
+            if (p * (1 - p) / trials) ** 0.5 <= _TARGET_STDERR:
+                break
+
+    if not trials:
+        return 0.0
+    return (wins + ties / 2) / trials
+
+
+@lru_cache(maxsize=1)
+def _preflop_equity_table() -> dict[str, float]:
+    """All-in equity for each starting hand against a random hand.
+
+    Derived from :data:`EQUITY_ORDER`, which lists all 169 starting hands by
+    Monte-Carlo all-in equity against a uniformly random opponent.  The position
+    in that ordering is a rank, not a probability, so the rank is mapped back
+    through the known equity curve rather than reused directly.
+
+    Sampling this instead cost ~3ms on the most common decision in the game;
+    reading a table costs nothing.
+    """
+    total = len(EQUITY_ORDER)
+    # ``EQUITY_ORDER[0]`` is AA, so index 0 is the *strongest* hand, not the
+    # weakest.  Anchor points read off the real equity curve against a random
+    # hand: AA ~85%, the median hand ~51%, the worst ~31%.  Interpolating between
+    # them is far more accurate than treating the rank as a probability, which
+    # would put AA at 1.0 and 32o at 0.
+    anchors = ((0.0, 0.855), (0.10, 0.68), (0.25, 0.60), (0.50, 0.515),
+               (0.75, 0.44), (0.90, 0.375), (1.0, 0.315))
+
+    def curve(x: float) -> float:
+        for (x0, y0), (x1, y1) in zip(anchors, anchors[1:]):
+            if x <= x1:
+                span = x1 - x0
+                t = 0.0 if span == 0 else (x - x0) / span
+                return y0 + (y1 - y0) * t
+        return anchors[-1][1]
+
+    return {
+        token: curve(index / (total - 1))
+        for index, token in enumerate(EQUITY_ORDER)
+    }
+
+
+def _canonical_codes(*groups: list[Card]) -> tuple[str, ...]:
+    """Relabel suits by first appearance, so equivalent spots share a key.
+
+    Equity does not depend on *which* suits are involved, only on which cards
+    share a suit.  ``Ah Kh`` on ``2h 7d 9c`` is the same problem as ``As Ks`` on
+    ``2s 7d 9c``, so both should hit one cache entry.  Without this the cache
+    misses on nearly every decision and each miss re-runs the whole simulation.
+
+    The relabelling is applied across the hole cards and the board together, so
+    the hole/board suit relationship -- the part that actually matters -- is
+    preserved.
+    """
+    mapping: dict[int, str] = {}
+    out: list[str] = []
+    for group in groups:
+        for card in group:
+            if card.suit not in mapping:
+                mapping[card.suit] = "shdc"[len(mapping)]
+            out.append(f"{card.rank_char}{mapping[card.suit]}")
+    return tuple(out)
+
+
+def equity(hole: list[Card], board: list[Card], *, raising: bool = False) -> float:
+    """Chance of winning at showdown against a plausible opponent hand.
+
+    ``raising=True`` narrows the assumed range, because a player who has put in
+    a raise is not holding any two cards.  Against a *random* hand nearly every
+    holding is near 50%, which would make every pot-odds call look correct, so
+    the range matters more than the sampling here.
+    """
+    if len(hole) != 2 or len(board) > 5:
+        return 0.0
+
+    if not board:
+        # Pre-flop equity is a property of the two cards alone, and the table is
+        # already built from real all-in equity -- no sampling needed.
+        base = _preflop_equity_table().get(hand_token(hole) or "", 0.0)
+        # Narrower ranges are stronger than random, so shade the number down a
+        # little rather than re-simulating.
+        return base * (0.93 if raising else 1.0)
+
+    rank = _TIGHT_RANGE_RANK if raising else _STANDARD_RANGE_RANK
+    canonical = _canonical_codes(hole, board)
+    return _equity_cached(canonical[:2], canonical[2:], rank)
+
+
+def pot_odds(call_cost: int, pot: int) -> float:
+    """The equity needed to break even on a call, as a 0..1 share."""
+    if call_cost <= 0:
+        return 0.0
+    return call_cost / max(1, pot + call_cost)
 
 
 def hand_label(hole: list[Card], board: list[Card]) -> str:

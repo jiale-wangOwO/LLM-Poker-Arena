@@ -13,7 +13,8 @@ makes category comparisons cheap.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import lru_cache
 from itertools import combinations
 from typing import Iterable, Sequence
 
@@ -79,6 +80,12 @@ HIGH_CARD, ONE_PAIR, TWO_PAIR, THREE_KIND, STRAIGHT, FLUSH, FULL_HOUSE, FOUR_KIN
 _BASE = 16**5
 
 
+#: Every card, addressable by its two-character code.  Evaluation and equity
+#: sampling both turn codes back into cards constantly, and rebuilding them with
+#: ``Card.from_str`` showed up as 1.4M calls in a single test.
+_CARD_BY_CODE: dict[str, Card] = {}
+
+
 @dataclass(frozen=True, slots=True)
 class Card:
     """A single playing card stored as a compact integer.
@@ -89,6 +96,28 @@ class Card:
 
     rank: int
     suit: int
+
+    #: Cached renderings.  These are immutable, and equity sampling touches
+    #: ``code`` thousands of times per lookup -- profiling showed 8.5k property
+    #: calls rebuilding the same strings inside a single hand evaluation.
+    #: Excluded from equality and ordering: identity is (rank, suit) alone, so a
+    #: card built without them must compare equal to one built with them.
+    rank_char: str = field(default="", compare=False, repr=False)
+    suit_char: str = field(default="", compare=False, repr=False)
+    code: str = field(default="", compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.rank_char and self.suit_char:
+            return
+        # ``frozen`` forbids normal assignment; slots need object.__setattr__.
+        rank_char = RANKS[self.rank]
+        suit_char = SUITS[self.suit]
+        object.__setattr__(self, "rank_char", rank_char)
+        object.__setattr__(self, "suit_char", suit_char)
+        object.__setattr__(self, "code", f"{rank_char}{suit_char}")
+        # Register the first instance built for each card so evaluation can look
+        # cards up by code instead of re-parsing them.
+        _CARD_BY_CODE.setdefault(self.code, self)
 
     # -- construction ------------------------------------------------------
     @classmethod
@@ -108,24 +137,11 @@ class Card:
 
     # -- rendering ---------------------------------------------------------
     @property
-    def rank_char(self) -> str:
-        return RANKS[self.rank]
-
-    @property
-    def suit_char(self) -> str:
-        return SUITS[self.suit]
-
-    @property
     def label(self) -> str:
         """Human label, e.g. ``"10\u2665"`` or ``"10h"`` on a limited console."""
         rank = RANK_NAMES.get(self.rank_char, self.rank_char)
         suit = SUIT_ASCII[self.suit_char] if ascii_suits() else SUIT_SYMBOLS[self.suit_char]
         return f"{rank}{suit}"
-
-    @property
-    def code(self) -> str:
-        """e.g. ``"Th"`` -- machine friendly."""
-        return f"{self.rank_char}{self.suit_char}"
 
     def __str__(self) -> str:  # pragma: no cover - convenience
         return self.label
@@ -296,20 +312,52 @@ def _pack(rank_mask: int, count: int) -> int:
     return packed
 
 
+@lru_cache(maxsize=1 << 18)
+def _score_of_codes(codes: tuple[str, ...]) -> int:
+    """Packed score for a 5/6/7-card hand, memoised on the cards involved.
+
+    Equity sampling evaluates a fresh runout on almost every trial, so caching on
+    the exact card set misses nearly always.  The work is therefore split:
+
+    * a **flush** needs suit information, so it is keyed on the exact cards;
+    * with no flush, a hand's value depends only on which *ranks* appear and how
+      often -- ``AhKh`` and ``AsKs`` make the same hand -- so it is keyed on the
+      rank multiset.  That repeats constantly across different runouts, which is
+      where the real reuse lives.
+    """
+    cards = [_CARD_BY_CODE.get(code) or Card.from_str(code) for code in codes]
+
+    # Six or seven cards: a flush only matters if some suit has five or more.
+    if len(cards) > 5:
+        suit_counts = [0, 0, 0, 0]
+        for card in cards:
+            suit_counts[card.suit] += 1
+        if max(suit_counts) < 5:
+            return _best_by_ranks(tuple(sorted(card.rank for card in cards)))
+    return max(evaluate5(combo) for combo in combinations(cards, 5))
+
+
+@lru_cache(maxsize=1 << 18)
+def _best_by_ranks(ranks: tuple[int, ...]) -> int:
+    """Best five-card score from a rank multiset, ignoring suits.
+
+    A straight flush is impossible here (no flush), so pure rank counting is
+    exact.  The cards are synthesised onto distinct suits so the existing
+    five-card evaluator can be reused rather than duplicated.
+    """
+    cards = [Card(rank, index % 4) for index, rank in enumerate(ranks)]
+    return max(evaluate5(combo) for combo in combinations(cards, 5))
+
+
 def evaluate(cards: Iterable[Card]) -> HandResult:
     """Best five-card score from 5, 6 or 7 cards."""
     card_list = list(cards)
     n = len(card_list)
     if n < 5:
         raise ValueError(f"Need at least 5 cards to evaluate, got {n}")
-    if n == 5:
-        score = evaluate5(card_list)
-    elif n == 6:
-        score = max(evaluate5(combo) for combo in combinations(card_list, 5))
-    elif n == 7:
-        score = max(evaluate5(combo) for combo in combinations(card_list, 5))
-    else:
+    if n > 7:
         raise ValueError(f"Cannot evaluate {n} cards (max 7)")
+    score = _score_of_codes(tuple(sorted(c.code for c in card_list)))
     return HandResult(category=score // _BASE, score=score)
 
 

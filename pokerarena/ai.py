@@ -378,16 +378,37 @@ def build_system_prompt(persona: Persona) -> str:
 
 
 def _hand_strength_note(player: Player, table: Table) -> str:
-    """A calibrated strength anchor, including a percentile.
+    """A calibrated strength anchor, including a percentile and equity.
 
     The model is free to disagree, but a percentile keeps its reasoning (and the
     offline bot) anchored to real hand values instead of vibes.
+
+    Equity is reported separately from the percentile because they answer
+    different questions, and confusing them causes real blunders.  The
+    percentile ranks the *made* hand; equity is the chance of winning against a
+    plausible range, which is what pot odds are compared against.  An ace-high
+    gutshot is a weak made hand and still has well over half the equity, so
+    folding it when the price is tiny would be a mistake.
     """
     if not player.hole_cards:
         return ""
-    from .strength import describe_strength
+    from .strength import describe_strength, equity
 
-    return f" -- {describe_strength(player.hole_cards, table.board)}"
+    note = f" -- {describe_strength(player.hole_cards, table.board)}"
+
+    opponents = max(1, len([p for p in table.contenders if p.seat != player.seat]))
+    if len(player.hole_cards) == 2:
+        # One equity number is a fair comparison only heads-up.  Against a field
+        # it overstates the hand badly, so say so rather than let the model
+        # assume it applies.
+        facing_raise = table.current_bet > table.big_blind
+        share = equity(player.hole_cards, table.board, raising=facing_raise)
+        against = "a raising range" if facing_raise else "a typical range"
+        label = "equity heads-up" if opponents <= 1 else "equity vs one opponent"
+        note += f", {share:.0%} {label} ({against})"
+        if opponents > 1:
+            note += f" -- {opponents} opponents, so win far less often than that"
+    return note
 
 
 def _position_note(table: Table, seat: int) -> str:
@@ -1264,6 +1285,7 @@ class HeuristicTransport:
         prompt = messages[-1]["content"] if messages else ""
         legal = _parse_legal_block(prompt)
         pct = _parse_percentile(prompt)
+        share = _parse_equity(prompt)
         pot = _parse_int(prompt, r"Pot: (\d+)") or 0
         to_call = _parse_int(prompt, r"To call: (\d+)") or 0
         # The highest bet on this street: equals the big blind pre-flop, and is
@@ -1284,7 +1306,7 @@ class HeuristicTransport:
 
         style = self.persona
         # Ranges tighten as the field grows and widen as it shrinks.
-        opponents = _parse_int(prompt, r"Players still in this hand: (\d+)") or 6
+        opponents = _parse_opponents(prompt)
         entry = self._shorthanded_entry(opponents)
         # Keep the raise threshold a consistent step above the (possibly
         # widened) entry threshold.
@@ -1313,6 +1335,27 @@ class HeuristicTransport:
             tolerance = 0.6 - style.tightness * 0.2 + style.aggression * 0.1
             good_price = pct >= price * tolerance
             committing = all_in_to > 0 and call_cost >= 0.5 * all_in_to
+
+            # Pot odds, done properly.  The percentile above ranks the *made*
+            # hand, which is the wrong yardstick for a call: a gutshot with two
+            # overcards is a weak made hand and still wins often enough to call
+            # when the price is small.  Compare real equity against the
+            # break-even share instead, with a margin so the bot is not calling
+            # purely to break even.
+            #
+            # The reported equity is against a single opponent, which badly
+            # overstates a hand in a multiway pot -- the same 54% that is a clear
+            # call heads-up wins far less against four callers.  Raising it to
+            # the power of the field size is the standard approximation for
+            # beating several independent hands.
+            effective_share = share
+            if share is not None and opponents > 1:
+                effective_share = share ** opponents
+            equity_call = (
+                effective_share is not None
+                and call_cost > 0
+                and effective_share >= price * 1.15
+            )
 
             # Facing a raise, a hand should not have to clear the *opening*
             # range: the price on offer sets the bar for continuing.  Without
@@ -1343,9 +1386,11 @@ class HeuristicTransport:
             )
 
             if pct < entry_needed and not committing and not committed_short:
-                # Below what the price allows: only a cheap speculative call or
-                # a deliberate bluff raise keeps them in.
-                if bluffing and call_cost <= max(20, pot // 3):
+                # Below what the price allows: only a cheap speculative call, a
+                # genuinely +EV price, or a deliberate bluff raise keeps them in.
+                if equity_call:
+                    text = "call"
+                elif bluffing and call_cost <= max(20, pot // 3):
                     text = "call"
                 else:
                     text = "fold"
@@ -1355,7 +1400,7 @@ class HeuristicTransport:
                 and self.rng.random() < raise_freq
             ) or (committed_short and can_raise):
                 text = self._sized_raise(legal, pct, prompt)
-            elif good_price or committing or committed_short or pct >= 0.85:
+            elif good_price or committing or committed_short or equity_call or pct >= 0.85:
                 text = "call"
             else:
                 text = "fold"
@@ -1478,3 +1523,31 @@ def _parse_percentile(prompt: str) -> float:
 def _parse_int(prompt: str, pattern: str) -> int | None:
     match = re.search(pattern, prompt)
     return int(match.group(1)) if match else None
+
+
+def _parse_equity(prompt: str) -> float | None:
+    """Read the reported equity share (``51% equity ...``) out of the prompt."""
+    match = re.search(r"(\d{1,3})%\s+equity", prompt)
+    if not match:
+        return None
+    return min(1.0, int(match.group(1)) / 100)
+
+
+def _parse_opponents(prompt: str) -> int:
+    """How many *other* players are still in the hand.
+
+    Counted from the player list rather than read from a dedicated field: an
+    earlier version looked for a line that a later prompt rewrite had removed,
+    so the count silently fell back to a full ring and every short-handed seat
+    played as though it were nine-handed.
+
+    Only the opponents' lines carry the "still in the hand" marker -- this
+    seat's own line reads "7d Ah, 1000 chips" -- so the count is used as-is.
+    """
+    count = len(re.findall(r"--\s*still in the hand", prompt))
+    if count:
+        return count
+    listed = _parse_int(prompt, r"Players still in this hand: (\d+)")
+    if listed is not None:
+        return max(0, listed - 1)
+    return 1

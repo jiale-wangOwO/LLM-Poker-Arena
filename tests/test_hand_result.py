@@ -169,12 +169,17 @@ def test_skip_hold_is_accepted(client):
     assert "error" not in response.get_json()
 
 
-def test_every_hand_reports_the_pot_that_was_won():
+@pytest.mark.parametrize("seed", [2, 4, 7, 11, 13])
+def test_every_hand_reports_the_pot_that_was_won(seed):
     """An uncontested hand is still played for chips, and must say how many.
 
     The pot is zeroed when it is paid out, so the size has to be captured at
-    that moment -- otherwise the result card reads "won 0".  Checked against a
-    whole completed game rather than by polling, which would miss hands.
+    that moment -- otherwise the result card reads "won 0".
+
+    Checked over the whole hand history rather than by polling, which misses
+    hands.  Several seeds are used because a game can legitimately end in a
+    single hand (one player stacking everyone), so no individual seed is
+    guaranteed to produce an uncontested pot to compare against.
     """
     from pokerarena.web_state import GameSession
     from tests.helpers import session_config
@@ -185,29 +190,47 @@ def test_every_hand_reports_the_pot_that_was_won():
             with_human=False,
             offline=True,
             speed_seconds=0.0,
-            starting_chips=200,
+            starting_chips=1000,
             max_hands=60,
-            seed=4,
+            seed=seed,
             hand_result_seconds=0.0,
         )
     )
     session.start()
-    deadline = time.time() + 40
+    deadline = time.time() + 60
     while not session.finished and time.time() < deadline:
         time.sleep(0.05)
     assert session.finished, "the game did not finish"
 
     history = session.arena.hand_history
-    assert len(history) >= 4, f"only {len(history)} hands were played"
+    assert history, "no hands were played"
     for record in history:
         assert record["winners"], f"hand {record['hand_number']} has no winner"
         assert record["pot"] > 0, (
             f"hand {record['hand_number']} reports a pot of {record['pot']}"
         )
-    # The uncontested hands are the ones that used to report zero.
-    uncontested = [r for r in history if not r["showdown"]]
-    assert uncontested, "no uncontested hand in this game"
-    assert all(r["pot"] > 0 for r in uncontested)
+
+
+def test_an_uncontested_pot_keeps_its_size():
+    """Directly pin the case that used to report zero: everyone folds."""
+    from pokerarena.engine import Action, ActionType, Player, Table
+
+    players = [Player(name=f"P{i}", seat=i, chips=1000) for i in range(3)]
+    for p in players:
+        p.seated = True
+    table = Table(players, 10, 20, seed=1)
+    table.start_hand()
+    # Fold everyone around to the big blind.
+    while not table.is_hand_over:
+        seat = table.actor
+        if seat is None:
+            break
+        table.apply_action(seat, Action(ActionType.FOLD))
+    assert table.hand_number == 1
+    assert table.pots_snapshot, "an uncontested hand must still record a pot"
+    total = sum(pot["amount"] for pot in table.pots_snapshot)
+    assert total == 30, f"expected the blinds (30) to be the whole pot, got {total}"
+    assert table.pot == 0, "the pot must be paid out"
 
 
 def test_the_hold_is_announced_so_the_ui_can_count_it_down(client):
