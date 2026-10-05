@@ -197,10 +197,20 @@ def test_every_hand_reports_the_pot_that_was_won(seed):
         )
     )
     session.start()
-    deadline = time.time() + 60
+    # The game runs on a worker thread, so this is a wall-clock wait for it, not
+    # CPU we control. Seed 7 plays 45 hands in under two seconds on an idle
+    # machine, but the full suite runs many sessions at once and the GIL makes
+    # progress slower than that -- so the budget is generous and the failure
+    # message says how far it actually got, rather than just "did not finish".
+    deadline = time.time() + 90
+    started = time.time()
     while not session.finished and time.time() < deadline:
         time.sleep(0.05)
-    assert session.finished, "the game did not finish"
+    assert session.finished, (
+        f"seed {seed}: game did not finish in {time.time() - started:.1f}s "
+        f"(reached hand {session.arena.table.hand_number}, "
+        f"street={session.arena.table.street.value})"
+    )
 
     history = session.arena.hand_history
     assert history, "no hands were played"
