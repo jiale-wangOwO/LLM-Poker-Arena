@@ -23,6 +23,7 @@ from .engine import (
     Table,
 )
 from .personas import DEFAULT_PERSONA, Persona, get_persona
+from .providers import record_usage
 
 # --------------------------------------------------------------------------
 # Player specs
@@ -137,12 +138,16 @@ class Arena:
         model_name, base_url, api_key, max_tokens, timeout = resolved
         if not api_key:
             return HeuristicTransport(persona, random.Random(self.rng.random()))
+        # Attribute this seat's token spend to the provider it is actually using,
+        # so the settings screen can show what each one has cost this session.
+        provider_id = player.model
         return OpenAITransport(
             model=model_name,
             base_url=base_url,
             api_key=api_key,
             max_tokens=max_tokens,
             timeout=timeout,
+            on_usage=lambda usage, pid=provider_id: record_usage(pid, usage),
         )
 
     def _resolve_provider(self, provider_id: str) -> tuple[str, str, str, int, float] | None:

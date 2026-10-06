@@ -21,7 +21,7 @@ from __future__ import annotations
 import random
 import re
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from .cards import Card, format_cards
 from .engine import (
@@ -671,6 +671,9 @@ class OpenAITransport:
     api_key: str
     max_tokens: int = 2500
     timeout: float = 120.0
+    #: Called with the API's reported ``usage`` dict after each successful call,
+    #: so a caller can total up token spend.  Defaults to doing nothing.
+    on_usage: Callable[[dict], None] | None = None
 
     def complete(
         self, system: str, messages: list[dict], *, temperature: float
@@ -703,6 +706,8 @@ class OpenAITransport:
                 "completion_tokens": getattr(response.usage, "completion_tokens", None),
                 "total_tokens": getattr(response.usage, "total_tokens", None),
             }
+            if self.on_usage is not None:
+                self.on_usage(usage)
 
         if not content.strip():
             if finish_reason == "length":

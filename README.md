@@ -117,6 +117,10 @@ Any OpenAI-compatible endpoint works. For a local model, point the base URL at i
 You can add several providers and give each seat a different one, which is a
 quick way to compare two models on identical cards.
 
+Each provider shows what it has used this session — calls, tokens in and out, and
+the total — which is the easiest way to see what a game actually costs. The
+counters live in memory only and reset when you restart the server.
+
 ### Running several games
 
 **New game** starts another session; the browser follows the newest. Open

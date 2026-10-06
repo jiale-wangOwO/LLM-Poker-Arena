@@ -436,6 +436,11 @@
   }
   .prov .nm { font-weight: 600; font-size: 12.5px; display: flex; align-items: center; gap: 7px; }
   .prov .dt { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prov .use {
+    font-size: 11px; color: var(--dim); margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .prov .use b { color: var(--gold); font-weight: 700; }
   .prov .acts { display: flex; gap: 6px; align-items: center; }
   .badge {
     font-size: 9.5px; letter-spacing: .4px; text-transform: uppercase; padding: 1px 6px;
@@ -1598,9 +1603,26 @@ function renderSpeedLabel() {
     : `${value.toFixed(1)}s between decisions`;
 }
 $("fSpeed").addEventListener("input", renderSpeedLabel);
+
+// Token totals move while a game runs, so refresh them while Settings is open.
+// Cheap: one small JSON request, and only while the dialog is actually visible.
+setInterval(async () => {
+  if (!$("settings").classList.contains("on")) return;
+  await loadProviders();
+  renderProviders();
+}, 5000);
 renderSpeedLabel();
 
 /* ------------------------------------------------------------ providers */
+/** "12 calls, 34.5k in / 8.1k out", or nothing when the provider is unused. */
+function usageLine(u) {
+  if (!u || !u.calls) return "";
+  const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0));
+  return `<div class="use">${u.calls} call${u.calls === 1 ? "" : "s"} this session \u00b7 `
+    + `${k(u.prompt_tokens)} in / ${k(u.completion_tokens)} out \u00b7 `
+    + `<b>${k(u.total_tokens)}</b> tokens</div>`;
+}
+
 function renderProviders() {
   const box = $("provList");
   if (!providers.length) {
@@ -1616,6 +1638,7 @@ function renderProviders() {
           ${p.reasoning ? '<span class="badge">reasoning</span>' : ""}
         </div>
         <div class="dt">${esc(p.model)} \u00b7 ${esc(p.base_url)}</div>
+        ${usageLine(p.usage)}
       </div>
       <div class="acts">
         <button class="btn sm" data-edit="${p.id}">Edit</button>

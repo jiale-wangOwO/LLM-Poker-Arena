@@ -245,6 +245,54 @@ def _slugify(text: str) -> str:
 STORE = ProviderStore()
 
 
+# --------------------------------------------------------------------------
+# Token usage
+# --------------------------------------------------------------------------
+#: Totals per provider id, kept in memory only.  Deliberately not persisted:
+#: these are counters for the current session, and writing them to
+#: providers.json would put runtime churn into a config file that holds keys.
+_USAGE: dict[str, dict[str, int]] = {
+    # provider_id: {"calls", "prompt_tokens", "completion_tokens", "total_tokens"}
+}
+_USAGE_LOCK = threading.Lock()
+
+
+def record_usage(provider_id: str, usage: dict | None) -> None:
+    """Add one API call's reported token usage to a provider's running total."""
+    if not provider_id or not usage:
+        return
+    with _USAGE_LOCK:
+        totals = _USAGE.setdefault(
+            provider_id,
+            {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        )
+        totals["calls"] += 1
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(key)
+            if isinstance(value, int):
+                totals[key] += value
+
+
+def usage_for(provider_id: str) -> dict[str, int]:
+    """This session's totals for one provider (zeros if it has not been used)."""
+    with _USAGE_LOCK:
+        return dict(
+            _USAGE.get(
+                provider_id,
+                {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            )
+        )
+
+
+def reset_usage(provider_id: str | None = None) -> None:
+    """Clear the totals, for one provider or for all of them."""
+    with _USAGE_LOCK:
+        if provider_id is None:
+            _USAGE.clear()
+        else:
+            _USAGE.pop(provider_id, None)
+
+
 def provider_store() -> ProviderStore:
     return STORE
 

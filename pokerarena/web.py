@@ -23,7 +23,7 @@ from .config import ArenaConfig
 from .engine import IllegalAction
 from .personas import STORE as PERSONA_STORE
 from .providers import STORE as PROVIDERS
-from .providers import default_provider_id
+from .providers import default_provider_id, reset_usage, usage_for
 from .web_state import (
     MAX_SEATS,
     SeatSpec,
@@ -165,13 +165,29 @@ def create_app() -> Flask:
         """Providers available to the seat editor.
 
         Keys are never returned; ``has_key`` only reports whether one exists.
+
+        Each entry carries this session's token usage for that provider, which is
+        how the settings screen shows what a seat has actually spent.
         """
         store = PROVIDERS
+        entries = []
+        for provider in store.all():
+            entry = provider.public()
+            entry["usage"] = usage_for(provider.id)
+            entries.append(entry)
         return jsonify(
             default_provider=default_provider_id(),
             max_seats=MAX_SEATS,
-            providers=[p.public() for p in store.all()],
+            providers=entries,
         )
+
+    @app.post("/api/models/usage/reset")
+    def reset_model_usage():
+        """Zero the token counters, for one provider or all of them."""
+        payload = request.get_json(silent=True) or {}
+        provider_id = str(payload.get("provider") or "").strip()
+        reset_usage(provider_id or None)
+        return jsonify(reset=provider_id or "all")
 
     @app.post("/api/providers")
     def add_provider():
