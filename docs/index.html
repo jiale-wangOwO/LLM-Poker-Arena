@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LLM Poker Arena — Texas Hold'em played by language models</title>
-<meta name="description" content="Texas Hold'em where every AI seat is a different character played by a language model. A from-scratch rules engine with real side pots, seven personas, a browser table with replay and god mode, and 784 tests.">
+<title>LLM Poker Arena — put a language model in every seat</title>
+<meta name="description" content="A poker table where every seat is a different character played by a language model. Seven personalities, real Texas Hold'em, and any OpenAI-compatible model you want to sit down.">
 <meta name="color-scheme" content="dark">
 <meta property="og:title" content="LLM Poker Arena">
-<meta property="og:description" content="Texas Hold'em where every AI seat is a different character played by a language model.">
+<meta property="og:description" content="Put a language model in every seat, then watch who blinks.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="01-table.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>♠</text></svg>">
@@ -24,6 +24,7 @@
     --green: #4bd48a;
     --blue: #58a6ff;
     --red: #ef6355;
+    --purple: #b98cf0;
     --radius: 14px;
     --maxw: 1080px;
   }
@@ -31,7 +32,7 @@
   html { scroll-behavior: smooth; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    font: 16.5px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, "Noto Sans", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
@@ -45,13 +46,12 @@
 
   /* ---------- hero ---------- */
   header {
-    position: relative; overflow: hidden;
-    border-bottom: 1px solid var(--line);
+    position: relative; overflow: hidden; border-bottom: 1px solid var(--line);
     background:
-      radial-gradient(900px 420px at 50% -10%, rgba(75,212,138,.14), transparent 70%),
-      radial-gradient(700px 300px at 85% 10%, rgba(232,180,74,.10), transparent 70%),
+      radial-gradient(900px 420px at 50% -10%, rgba(75,212,138,.15), transparent 70%),
+      radial-gradient(700px 300px at 88% 8%, rgba(232,180,74,.10), transparent 70%),
       var(--bg);
-    padding: 72px 0 0;
+    padding: 76px 0 0;
   }
   .eyebrow {
     display: inline-flex; align-items: center; gap: 8px;
@@ -60,99 +60,132 @@
     background: rgba(232,180,74,.07); border-radius: 999px; padding: 5px 13px;
   }
   h1 {
-    font-size: clamp(2.1rem, 5.2vw, 3.4rem); line-height: 1.1;
-    margin: 22px 0 14px; letter-spacing: -1px; font-weight: 800;
+    font-size: clamp(2.2rem, 5.4vw, 3.5rem); line-height: 1.08;
+    margin: 24px 0 16px; letter-spacing: -1.2px; font-weight: 800;
   }
   h1 .accent { color: var(--gold); }
-  .lede { font-size: clamp(1.02rem, 2.1vw, 1.2rem); color: var(--dim); max-width: 62ch; margin: 0 0 26px; }
-  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+  .lede { font-size: clamp(1.05rem, 2.2vw, 1.24rem); color: var(--dim); max-width: 60ch; margin: 0 0 28px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
   .btn {
     display: inline-flex; align-items: center; gap: 9px;
-    border-radius: 10px; padding: 12px 20px; font-weight: 700; font-size: 15px;
+    border-radius: 10px; padding: 13px 22px; font-weight: 700; font-size: 15.5px;
     border: 1px solid transparent; transition: filter .15s, transform .06s;
   }
   .btn:hover { text-decoration: none; filter: brightness(1.12); }
   .btn:active { transform: translateY(1px); }
   .btn.primary { background: var(--gold); color: #241a08; }
   .btn.ghost { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
-  .note { font-size: 13.5px; color: var(--faint); }
+  .note { font-size: 14px; color: var(--faint); }
   .note b { color: var(--dim); font-weight: 600; }
 
-  .hero-shot { margin: 42px 0 -1px; }
+  .hero-shot { margin: 44px 0 -1px; }
   .hero-shot img {
-    display: block; width: 100%; height: auto; border-radius: var(--radius) var(--radius) 0 0;
+    display: block; width: 100%; height: auto;
+    border-radius: var(--radius) var(--radius) 0 0;
     border: 1px solid var(--line); border-bottom: none;
     box-shadow: 0 -10px 60px rgba(0,0,0,.6);
   }
 
   /* ---------- sections ---------- */
-  section { padding: 66px 0; border-bottom: 1px solid var(--line); }
+  section { padding: 74px 0; border-bottom: 1px solid var(--line); }
   section:last-of-type { border-bottom: none; }
-  h2 { font-size: clamp(1.4rem, 3.2vw, 1.9rem); margin: 0 0 10px; letter-spacing: -.4px; }
-  h3 { font-size: 1.06rem; margin: 0 0 6px; }
-  .sub { color: var(--dim); margin: 0 0 30px; max-width: 68ch; }
+  h2 { font-size: clamp(1.5rem, 3.3vw, 2rem); margin: 0 0 12px; letter-spacing: -.5px; }
+  h3 { font-size: 1.08rem; margin: 0 0 6px; }
+  .sub { color: var(--dim); margin: 0 0 34px; max-width: 66ch; font-size: 1.02rem; }
 
-  .grid { display: grid; gap: 16px; }
-  .grid.two { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-  .grid.three { grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); }
-  .card {
+  /* ---------- characters ---------- */
+  .cast { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .who {
     background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--radius); padding: 20px;
+    border-radius: var(--radius); padding: 20px 20px 18px;
+    display: flex; flex-direction: column; gap: 10px;
   }
-  .card p { margin: 0; color: var(--dim); font-size: 14.6px; }
-  .card .ico { font-size: 20px; margin-bottom: 8px; display: block; }
+  .who-top { display: flex; align-items: center; gap: 13px; }
+  .av {
+    width: 44px; height: 44px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; font-weight: 800; color: #10161e;
+  }
+  .who-name { font-size: 1.12rem; font-weight: 700; line-height: 1.25; }
+  .who-tag { font-size: 12.5px; color: var(--faint); }
+  .who-style { color: var(--dim); font-size: 14.6px; margin: 0; }
+  .who .quote {
+    border-left: 2px solid var(--line); padding: 2px 0 2px 13px;
+    color: var(--ink); font-size: 14.8px; font-style: italic; margin: 2px 0 0;
+  }
+  .who .quote .act { font-style: normal; color: var(--gold); font-weight: 600; }
+  .traits { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+  .trait {
+    font-size: 11px; letter-spacing: .4px; text-transform: uppercase;
+    color: var(--faint); border: 1px solid var(--line); border-radius: 999px;
+    padding: 2px 9px;
+  }
+  .trait.hot { color: var(--red); border-color: rgba(239,99,85,.4); }
+  .trait.cold { color: var(--blue); border-color: rgba(88,166,255,.4); }
+  .trait.sly { color: var(--purple); border-color: rgba(185,140,240,.4); }
 
+  /* ---------- moment (shared situation) ---------- */
+  .moment {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 26px;
+  }
+  .moment-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 13px 18px; background: var(--surface-2); border-bottom: 1px solid var(--line);
+    font-size: 13px; color: var(--faint);
+  }
+  .moment-bar .cards { display: flex; gap: 5px; margin-left: auto; }
+  .pc {
+    width: 30px; height: 42px; border-radius: 5px; background: #fbfcfd; color: #12181f;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; font-family: ui-monospace, Consolas, monospace;
+    box-shadow: 0 1px 3px rgba(0,0,0,.5);
+  }
+  .pc.r { color: #cf3b30; }
+  .moment-body { padding: 18px; color: var(--dim); font-size: 15px; }
+  .moment-body b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- figures ---------- */
   figure { margin: 0; }
   figure img {
     display: block; width: 100%; height: auto; border-radius: 12px;
     border: 1px solid var(--line); box-shadow: 0 10px 40px rgba(0,0,0,.5);
   }
-  figcaption { color: var(--faint); font-size: 13.5px; margin-top: 11px; }
+  figcaption { color: var(--faint); font-size: 14px; margin-top: 12px; }
   figcaption b { color: var(--dim); font-weight: 600; }
-  .shot + .shot { margin-top: 34px; }
+  .shot + .shot { margin-top: 40px; }
 
-  ul.checks { list-style: none; padding: 0; margin: 0; }
-  ul.checks li { position: relative; padding-left: 26px; margin-bottom: 9px; color: var(--dim); }
-  ul.checks li::before {
-    content: "✓"; position: absolute; left: 0; top: 0;
-    color: var(--green); font-weight: 700;
+  /* ---------- models ---------- */
+  .seats { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .seatcard {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 17px 18px;
   }
-  ul.checks li b { color: var(--ink); font-weight: 600; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 14.6px; }
-  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); }
-  th { color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .9px; font-weight: 600; }
-  td { color: var(--dim); }
-  td:first-child { color: var(--ink); }
-  tr:last-child td { border-bottom: none; }
-  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+  .seatcard .k { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .seatcard .v { font-size: 15.5px; color: var(--ink); margin-top: 5px; }
+  .seatcard .v span { color: var(--dim); }
 
   pre {
     background: #0d131b; border: 1px solid var(--line); border-radius: 12px;
-    padding: 16px 18px; overflow-x: auto; font-size: 13.6px; line-height: 1.7;
-    color: #cfe0f0; margin: 0 0 14px;
+    padding: 17px 19px; overflow-x: auto; font-size: 14px; line-height: 1.75;
+    color: #cfe0f0; margin: 0 0 16px;
   }
   pre .c { color: var(--faint); }
   pre .k { color: var(--gold); }
-  p code, li code, td code { background: #0d131b; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 13.4px; color: #cfe0f0; }
-
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; }
-  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; text-align: center; }
-  .stat .n { font-size: 1.75rem; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; display: block; line-height: 1.2; }
-  .stat .l { font-size: 12.5px; color: var(--faint); }
+  p code, li code { background: #0d131b; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 13.6px; color: #cfe0f0; }
 
   .callout {
     border-left: 3px solid var(--gold); background: rgba(232,180,74,.06);
-    border-radius: 0 10px 10px 0; padding: 14px 18px; color: var(--dim); font-size: 14.6px;
+    border-radius: 0 10px 10px 0; padding: 15px 19px; color: var(--dim); font-size: 15px;
   }
   .callout b { color: var(--ink); }
 
-  footer { padding: 46px 0 60px; color: var(--faint); font-size: 14px; }
+  footer { padding: 48px 0 64px; color: var(--faint); font-size: 14.5px; }
   footer a { color: var(--dim); }
 
   @media (max-width: 640px) {
-    header { padding-top: 48px; }
-    section { padding: 48px 0; }
+    header { padding-top: 50px; }
+    section { padding: 52px 0; }
   }
 </style>
 </head>
@@ -160,249 +193,281 @@
 
 <header>
   <div class="wrap">
-    <span class="eyebrow">Texas Hold'em &middot; LLM agents</span>
-    <h1>Every opponent is a <span class="accent">character</span>,<br>not just a policy.</h1>
+    <span class="eyebrow">Texas Hold'em &middot; any model you like</span>
+    <h1>Put a language model in every seat,<br>then watch <span class="accent">who blinks</span>.</h1>
     <p class="lede">
-      A poker table where each AI seat is played by a language model with its own
-      personality — a maths-first grinder, a hyper-aggressive maniac, an
-      ultra-tight nit, a deceptive trickster. Underneath sits a from-scratch
-      rules engine with real side pots, split pots and strict chip conservation.
+      Seven players, seven personalities, one table. One does the maths out loud.
+      One raises every street for the fun of it. One has been waiting all night
+      for a real hand. Deal them in and see how long you can read them.
     </p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">View on GitHub</a>
-      <a class="btn ghost" href="#run">Run it locally</a>
+      <a class="btn primary" href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">Run it on your machine</a>
+      <a class="btn ghost" href="#cast">Meet the players</a>
     </div>
     <p class="note">
-      <b>No API key needed to try it</b> — missing keys fall back to a built-in
-      offline opponent, so <code>--demo</code> always runs.
+      <b>Nothing to configure to start.</b> Deal a game with no model at all and
+      the seats play themselves, straight away.
     </p>
     <div class="hero-shot">
-      <img src="01-table.png" alt="The browser table: four AI seats around a felt, a five-card board, chips in front of a player, and a numbered action rail on the right showing each decision with its reasoning.">
+      <img src="01-table.png" alt="The poker table: four players around a green felt with a five-card board and chips in front of a player, and a panel on the right listing every action with the thinking behind it.">
     </div>
   </div>
 </header>
 
-<section>
+<section id="cast">
   <div class="wrap">
-    <h2>What makes it different</h2>
+    <h2>Meet the players</h2>
     <p class="sub">
-      Most poker bots are a lookup table wearing a hat. The interesting part here
-      is that each seat is given the <em>whole</em> public picture and asked to
-      reason about it in character.
+      Each one is a written character with its own instincts, its own way of
+      talking, and its own idea of what a good hand looks like. They are the whole
+      point: the cards are the same for everyone, the personalities are not.
     </p>
-    <div class="grid three">
-      <div class="card">
-        <span class="ico">🃏</span>
-        <h3>A real rules engine</h3>
-        <p>Side pots, split pots, uncalled-bet refunds, heads-up blind order,
-           all-in run-outs. Chip conservation is asserted event by event across
-           full games.</p>
+    <div class="cast">
+
+      <div class="who">
+        <div class="who-top">
+          <div class="av" style="background:#7fd1e8">A</div>
+          <div><div class="who-name">Alice</div><div class="who-tag">cold, maths-first, zero ego</div></div>
+        </div>
+        <p class="who-style">Thinks in ranges and pot odds. Folds without regret, value-bets thinly, and does not care what happened in the last hand.</p>
+        <p class="quote">&ldquo;Your sizing is telling a story.&rdquo; <span class="act">raises</span></p>
+        <div class="traits"><span class="trait cold">disciplined</span><span class="trait">no tilt</span></div>
       </div>
-      <div class="card">
-        <span class="ico">🎭</span>
-        <h3>Characters, not clones</h3>
-        <p>Seven hand-written personas, each with a system prompt, a voice and
-           four behavioural tendencies. Or write your own in the UI.</p>
+
+      <div class="who">
+        <div class="who-top">
+          <div class="av" style="background:#ef6355">R</div>
+          <div><div class="who-name">Rex</div><div class="who-tag">hyper-aggressive pressure machine</div></div>
+        </div>
+        <p class="who-style">Raises more than is reasonable, three-bets light, barrels every street. Would rather lose a big pot swinging than win a small one quietly.</p>
+        <p class="quote">&ldquo;Time to pay the toll, big shooter.&rdquo; <span class="act">raises</span></p>
+        <div class="traits"><span class="trait hot">relentless</span><span class="trait">bluffs often</span></div>
       </div>
-      <div class="card">
-        <span class="ico">🧠</span>
-        <h3>Full public context</h3>
-        <p>Position, the ordered betting history of the hand, effective stacks and
-           SPR, recent hands with their showdowns — plus a legal-action menu it
-           cannot cheat past.</p>
+
+      <div class="who">
+        <div class="who-top">
+          <div class="av" style="background:#8b9bab">T</div>
+          <div><div class="who-name">Tom</div><div class="who-tag">ultra-tight, waits for the nuts</div></div>
+        </div>
+        <p class="who-style">Folds almost everything. When he finally raises, believe him &mdash; he simply does not raise light. Happy to bleed blinds all night for one right spot.</p>
+        <p class="quote">&ldquo;You're making it expensive to be patient, Rex.&rdquo; <span class="act">calls</span></p>
+        <div class="traits"><span class="trait cold">rock</span><span class="trait">rarely bluffs</span></div>
       </div>
-      <div class="card">
-        <span class="ico">🤐</span>
-        <h3>Table talk stays honest</h3>
-        <p>Models may bluff in words, but never describe a hand. The prompt says
-           so, and a filter drops any line that does it anyway.</p>
+
+      <div class="who">
+        <div class="who-top">
+          <div class="av" style="background:#b98cf0">Z</div>
+          <div><div class="who-name">Zoe</div><div class="who-tag">deceptive, unbalanced, impossible to read</div></div>
+        </div>
+        <p class="who-style">Slow-plays monsters, bluffs with nothing, sometimes folds a decent hand just to keep you guessing. Being unreadable matters more to her than any single pot.</p>
+        <p class="quote">&ldquo;Let's see if you like a bigger number.&rdquo; <span class="act">raises</span></p>
+        <div class="traits"><span class="trait sly">tricky</span><span class="trait">unreadable</span></div>
       </div>
-      <div class="card">
-        <span class="ico">👁️</span>
-        <h3>God mode as a switch</h3>
-        <p>Flip it to see every hole card and every thought. It is display-only:
-           the prompts never contain another seat's cards.</p>
+
+      <div class="who">
+        <div class="who-top">
+          <div class="av" style="background:#4bd48a">B</div>
+          <div><div class="who-name">Bob</div><div class="who-tag">sticky, curious, hates folding</div></div>
+        </div>
+        <p class="who-style">Calls far too much because he always wants to see one more card. Rarely raises, rarely believes you. He keeps you honest by paying you off.</p>
+        <p class="quote">&ldquo;Fine, one more card, I'm curious now.&rdquo; <span class="act">calls</span></p>
+        <div class="traits"><span class="trait hot">sticky</span><span class="trait">no folding</span></div>
       </div>
-      <div class="card">
-        <span class="ico">🧪</span>
-        <h3>Audited, not just tested</h3>
-        <p>A rule fuzzer, an independent hand-evaluator cross-check, and a bot
-           audit. The engine bugs found so far were all found by the fuzzers.</p>
+
+      <div class="who">
+        <div class="who-top">
+          <div class="av" style="background:#58a6ff">S</div>
+          <div><div class="who-name">Sam</div><div class="who-tag">balanced, modern, solver-influenced</div></div>
+        </div>
+        <p class="who-style">Well-chosen bet sizes, defends his blinds, applies pressure in position, gives up gracefully when the story stops adding up. Adjusts to whoever he is against.</p>
+        <p class="quote">&ldquo;That line doesn't add up.&rdquo; <span class="act">folds</span></p>
+        <div class="traits"><span class="trait cold">balanced</span><span class="trait">adapts</span></div>
       </div>
+
+      <div class="who">
+        <div class="who-top">
+          <div class="av" style="background:#e8b44a">M</div>
+          <div><div class="who-name">Max</div><div class="who-tag">exploitative, punishes every weakness</div></div>
+        </div>
+        <p class="who-style">Watches you for a few hands, finds the leak, then attacks it without mercy: bluffs the folders, value-bets the callers, avoids the ones who fight back.</p>
+        <p class="quote">&ldquo;You're consistent, Rex. I'll give you that.&rdquo; <span class="act">calls</span></p>
+        <div class="traits"><span class="trait sly">predatory</span><span class="trait">adapts fast</span></div>
+      </div>
+
     </div>
   </div>
 </section>
 
 <section>
   <div class="wrap">
-    <h2>Around the table</h2>
-    <p class="sub">Three views of the same browser table.</p>
-
-    <figure class="shot">
-      <img src="01-table.png" alt="A hand in progress: five board cards, a bet chip in front of a player, an Out list in the corner, and the action rail listing numbered decisions with the reasoning behind each.">
-      <figcaption>
-        <b>A hand in progress.</b> Every action is numbered and carries the
-        reasoning behind it, so you can see <em>why</em> a seat raised rather than
-        only that it did. The rail follows the game live and doubles as a replay
-        scrubber. That <b>Out</b> badge is a busted player, moved off the felt.
-      </figcaption>
-    </figure>
-
-    <figure class="shot">
-      <img src="02-result.png" alt="The end-of-hand result card showing the winning player, the pot, the final board, and each revealed hand with its name, plus a small summary card in the corner.">
-      <figcaption>
-        <b>The end of a hand.</b> The result is held on screen with a countdown —
-        longer when there is more to read — and can be skipped with a click or the
-        space bar. The corner card keeps the previous hand available after the
-        pause, so looking away does not lose it.
-      </figcaption>
-    </figure>
-
-    <figure class="shot">
-      <img src="03-personas.png" alt="Settings, Personas tab: seven built-in templates listed with their tendencies, above a form for a new persona with a name, tagline, system prompt and voice.">
-      <figcaption>
-        <b>Personas are editable.</b> Seven templates ship with the game; editing
-        one duplicates it, so you cannot break a built-in. Providers (endpoint and
-        key) live here too, and keys are never returned by any endpoint.
-      </figcaption>
-    </figure>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Why it was rewritten</h2>
+    <h2>Same hand, seven different answers</h2>
     <p class="sub">
-      The original code had a working skeleton, but the poker itself was wrong in
-      ways that quietly corrupted games. A sample of what was fixed — each one is
-      covered by a test today.
+      This is one real deal, shown to every character in turn. The cards do not
+      change &mdash; only who is holding them.
     </p>
-    <div class="tbl-wrap">
-      <table>
-        <thead>
-          <tr><th>Bug</th><th>Consequence</th><th>Fix</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>No side pots at all</td>
-            <td>An all-in player could win chips they never matched</td>
-            <td>Layered pots with per-layer eligibility</td>
-          </tr>
-          <tr>
-            <td>Uncalled bets never returned</td>
-            <td>A shove nobody could call vanished into the pot</td>
-            <td>Uncalled excess is refunded</td>
-          </tr>
-          <tr>
-            <td>Split pots picked a winner</td>
-            <td>The first player in seat order took tied pots</td>
-            <td>Even split; odd chip to the first winner left of the button</td>
-          </tr>
-          <tr>
-            <td>Betting loop used a stale player list</td>
-            <td>A player who called could be skipped entirely</td>
-            <td>Action closure by what each seat still owes</td>
-          </tr>
-          <tr>
-            <td>Model output injected straight into the game</td>
-            <td>Any illegal reply aborted the hand</td>
-            <td>A legality firewall: models choose from an engine-computed menu</td>
-          </tr>
-          <tr>
-            <td>A missing API key killed the game</td>
-            <td>No key meant no game at all</td>
-            <td>Retry, then a legal fallback; no key degrades to a local bot</td>
-          </tr>
-        </tbody>
-      </table>
+
+    <div class="moment">
+      <div class="moment-bar">
+        <span>Turn &middot; four-handed &middot; Rex has bet every street</span>
+        <span class="cards">
+          <span class="pc r">K<span style="font-size:11px">♥</span></span>
+          <span class="pc">7♣</span>
+          <span class="pc r">2<span style="font-size:11px">♦</span></span>
+          <span class="pc">9♠</span>
+          <span class="pc r">K<span style="font-size:11px">♦</span></span>
+          <span class="pc r">Q<span style="font-size:11px">♥</span></span>
+        </span>
+      </div>
+      <div class="moment-body">
+        You are on the button with <b>top pair, good kicker</b>. Rex fires
+        <b>180</b> into a pot of <b>260</b>, for the third street in a row.
+        <b>What do you do?</b>
+      </div>
+    </div>
+
+    <div class="cast">
+      <div class="who">
+        <div class="who-top"><div class="av" style="background:#7fd1e8">A</div>
+          <div><div class="who-name">Alice</div><div class="who-tag">raises</div></div></div>
+        <p class="quote">&ldquo;Your sizing is telling a story.&rdquo;</p>
+        <p class="who-style">Calling 180 into 440 needs about 29%, and I have far more than that. Raise for value, charge the draws, keep the river simple.</p>
+      </div>
+      <div class="who">
+        <div class="who-top"><div class="av" style="background:#ef6355">R</div>
+          <div><div class="who-name">Rex</div><div class="who-tag">raises</div></div></div>
+        <p class="quote">&ldquo;Time to pay the toll, big shooter.&rdquo;</p>
+        <p class="who-style">His range is wide as a barn door here &mdash; worse kings, draws, and pure air. Taking control and making him decide for the rest of his stack.</p>
+      </div>
+      <div class="who">
+        <div class="who-top"><div class="av" style="background:#8b9bab">T</div>
+          <div><div class="who-name">Tom</div><div class="who-tag">calls, grudgingly</div></div></div>
+        <p class="quote">&ldquo;You're making it expensive to be patient, Rex.&rdquo;</p>
+        <p class="who-style">Not laying down top pair to someone who plays this fast. Calling &mdash; and not raising, because I do not raise without a real hand.</p>
+      </div>
+      <div class="who">
+        <div class="who-top"><div class="av" style="background:#b98cf0">Z</div>
+          <div><div class="who-name">Zoe</div><div class="who-tag">raises</div></div></div>
+        <p class="quote">&ldquo;Three streets, Rex? Let's see if you like a bigger number.&rdquo;</p>
+        <p class="who-style">Either he folds something that could have got there, or I find out exactly how much he likes his hand. Nobody reads me straight either way.</p>
+      </div>
+      <div class="who">
+        <div class="who-top"><div class="av" style="background:#4bd48a">B</div>
+          <div><div class="who-name">Bob</div><div class="who-tag">calls</div></div></div>
+        <p class="quote">&ldquo;Every street, Rex? Fine, one more card, I'm curious now.&rdquo;</p>
+        <p class="who-style">I hate folding and I want to see that river. If he has the king beat, so be it. 180 is nothing.</p>
+      </div>
+      <div class="who">
+        <div class="who-top"><div class="av" style="background:#e8b44a">M</div>
+          <div><div class="who-name">Max</div><div class="who-tag">calls</div></div></div>
+        <p class="quote">&ldquo;You're consistent, Rex. I'll give you that.&rdquo;</p>
+        <p class="who-style">Raising folds out his bluffs and only gets action from better. Letting him keep the lead and keeping his air in the hand is worth more.</p>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:26px">
+      <b>Nobody said what they were holding.</b> They will lie to each other all
+      night &mdash; but they never give a hand away, because a table where the
+      cards get read out loud is not a poker table.
     </div>
   </div>
 </section>
 
 <section>
   <div class="wrap">
-    <h2>How it fits together</h2>
+    <h2>What it looks like</h2>
+    <p class="sub">The felt, the table talk, and the thinking &mdash; all in one window.</p>
+
+    <figure class="shot">
+      <img src="01-table.png" alt="A hand in progress: five board cards, a bet in front of a player, and a panel on the right listing each numbered action together with the reasoning behind it.">
+      <figcaption>
+        <b>Every move comes with its reasons.</b> The panel on the right shows
+        what each player did and what they were thinking when they did it, so you
+        can see the bluff as it happens. Turn it off if you would rather just
+        watch the cards.
+      </figcaption>
+    </figure>
+
+    <figure class="shot">
+      <img src="02-result.png" alt="The end of a hand: a card showing who won and the size of the pot, the final board, and each hand that was shown with its name.">
+      <figcaption>
+        <b>You always know how the hand ended.</b> The result stays up with a
+        countdown &mdash; longer when there is more to read &mdash; and you can
+        skip it with a click when you are ready for the next one.
+      </figcaption>
+    </figure>
+
+    <figure class="shot">
+      <img src="03-personas.png" alt="A settings screen listing seven player profiles with their tendencies, above a form for writing a new player with a name, a tagline, a personality description and a way of speaking.">
+      <figcaption>
+        <b>Write your own player.</b> Seven come with the game. Change any of
+        them, or build one from scratch: a name, a personality, and a way of
+        talking is all it takes.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Put your own model at the table</h2>
     <p class="sub">
-      The rules layer has no dependencies — it is importable and testable
-      anywhere. Everything that needs a network or a UI sits on top of it.
+      Any model that speaks the OpenAI API can take a seat &mdash; a hosted one,
+      a local one, whatever you already have. Point a seat at it, and it plays
+      with the character you gave it.
     </p>
-    <pre><span class="c"># pure standard library: no network, no framework, no C extensions</span>
-pokerarena/
-  cards.py      bitmask 5/6/7-card evaluator, deck, card
-  engine.py     betting closure, side pots, street flow, table state
-  pot.py        pot layering, refunds, split payouts
-  strength.py   hand ranking, and equity against a range
-
-<span class="c"># the characters</span>
-  personas.py   templates, tendencies, voice; operator-defined personas
-  ai.py         prompt assembly, reply parsing, the table-talk filter
-  arena.py      seats, blinds schedule, hand loop, history
-
-<span class="c"># the front ends</span>
-  web.py        Flask endpoints for the browser table
-  web_state.py  session, replay, pause/step, god mode, the result hold
-  cli.py        the terminal table</pre>
-    <div class="callout">
-      <b>The engine cannot be talked into an illegal move.</b> A seat is handed
-      the exact menu of what is legal, and its answer is re-validated on the way
-      in. A model can return nonsense; the hand keeps going.
+    <div class="seats">
+      <div class="seatcard">
+        <div class="k">Endpoint</div>
+        <div class="v">Any OpenAI-compatible URL <span>&mdash; hosted or local</span></div>
+      </div>
+      <div class="seatcard">
+        <div class="k">Mix and match</div>
+        <div class="v">A different model per seat <span>&mdash; put two against each other</span></div>
+      </div>
+      <div class="seatcard">
+        <div class="k">Your key</div>
+        <div class="v">Stays on your machine <span>&mdash; never sent anywhere else</span></div>
+      </div>
+      <div class="seatcard">
+        <div class="k">No key?</div>
+        <div class="v">Seats play themselves <span>&mdash; the game always runs</span></div>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:24px">
+      <b>A good way to compare models.</b> Give two of them the same seat, the
+      same character and the same cards, and see which one actually plays poker.
     </div>
   </div>
 </section>
 
 <section id="run">
   <div class="wrap">
-    <h2>Run it locally</h2>
-    <p class="sub">
-      Python 3.11+. The rules engine and the offline opponent need nothing but the
-      standard library.
-    </p>
-    <pre><span class="c"># clone and install</span>
+    <h2>Deal yourself in</h2>
+    <p class="sub">Needs Python 3.11 or newer. Nothing else to set up first.</p>
+    <pre><span class="c"># grab it and install</span>
 git clone https://github.com/jiale-wangOwO/LLM-Poker-Arena.git
 cd LLM-Poker-Arena
 pip install -r requirements.txt
 
-<span class="c"># watch three personas play -- no API key needed</span>
+<span class="c"># watch a game straight away -- no key, no model, no setup</span>
 python main.py --demo
 
-<span class="c"># sit down yourself, with real models</span>
-python main.py --me --models deepseek-flash
+<span class="c"># take a seat yourself</span>
+python main.py --me
 
-<span class="c"># the browser table</span>
+<span class="c"># the table in your browser</span>
 python -m pokerarena.web --port 8080
-<span class="c"># then open http://127.0.0.1:8080</span></pre>
-
-    <h3 style="margin-top:30px">Adding a model</h3>
-    <p class="sub" style="margin-bottom:14px">
-      Any OpenAI-compatible endpoint works. In the browser UI, open
-      <b>Settings &rarr; Providers</b> and paste a base URL, a model name and a
-      key; the key is stored in <code>providers.json</code> on your machine and is
-      never returned by any endpoint. The terminal UI reads keys from
-      <code>.env</code> instead — copy <code>.env.example</code> to start.
+<span class="c"># now open http://127.0.0.1:8080</span></pre>
+    <p class="sub" style="margin:26px 0 0">
+      Adding a model takes one form: open <b>Settings &rarr; Providers</b>, paste
+      a base URL, a model name and a key. Your key is saved on your own machine
+      and is never sent back to the browser.
     </p>
-    <div class="callout">
-      <b>Windows note:</b> if a system HTTP proxy is configured, add
-      <code>127.0.0.1</code> to <code>NO_PROXY</code>, or local requests may be
-      routed through it and fail.
+    <div class="callout" style="margin-top:22px">
+      <b>On Windows</b>, if you use a system HTTP proxy, add
+      <code>127.0.0.1</code> to <code>NO_PROXY</code> &mdash; otherwise local
+      requests can get routed through the proxy and fail.
     </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Health of the project</h2>
-    <div class="stats">
-      <div class="stat"><span class="n">784</span><span class="l">tests passing</span></div>
-      <div class="stat"><span class="n">7</span><span class="l">built-in personas</span></div>
-      <div class="stat"><span class="n">5,000</span><span class="l">fuzzed hands, 0 violations</span></div>
-      <div class="stat"><span class="n">0</span><span class="l">engine dependencies</span></div>
-    </div>
-    <ul class="checks" style="margin-top:26px">
-      <li><b>Chip conservation</b> is verified event by event across full games, not just at the end.</li>
-      <li><b>The evaluator</b> is cross-checked against a naive brute-force reference over every hand category, the structural edge cases (wheels, steel wheels, quads on board) and tens of thousands of random hands.</li>
-      <li><b>The rule fuzzer</b> deliberately submits actions the engine never offered, because a language model can return anything.</li>
-      <li><b>God mode</b> is asserted never to reach a prompt, so watching does not change how anyone plays.</li>
-    </ul>
   </div>
 </section>
 
@@ -410,8 +475,7 @@ python -m pokerarena.web --port 8080
   <div class="wrap">
     <p>
       <a href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">github.com/jiale-wangOwO/LLM-Poker-Arena</a>
-      &nbsp;·&nbsp; Apache License 2.0 &nbsp;·&nbsp; built with Python, Flask and a lot of
-      hand evaluation
+      &nbsp;·&nbsp; Apache License 2.0
     </p>
   </div>
 </footer>
