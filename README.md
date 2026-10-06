@@ -15,14 +15,14 @@ you are actually watching.
 ![The table](docs/01-table.png)
 
 > **New here?** <https://jiale-wangOwO.github.io/LLM-Poker-Arena/> is a product
-> tour with screenshots. This file is the technical documentation.
+> tour with screenshots.
 
 ---
 
-## Let your agent set it up
+## 🤖 Let your agent set it up
 
-If you have a coding agent (Claude Code, Cursor, Copilot, Codex, whatever), you
-don't need to read the rest of this file. Just say to it:
+If you have a coding agent (Claude Code, Cursor, Codex, whatever), you don't need
+to read the rest of this file. Just say to it:
 
 ```text
 Hi! Please install https://github.com/jiale-wangOwO/LLM-Poker-Arena for me and
@@ -31,10 +31,8 @@ get it running.
 When it's ready, give me a short list of how to use it.
 ```
 
-Everything it needs is below, so it can read the instructions itself.
-
 You do not need an API key to get this far: the table deals and plays itself with
-built-in opponents. Add a key when you want real models at the table.
+built-in opponents. Add a key when you want real AI at the table.
 
 ---
 
