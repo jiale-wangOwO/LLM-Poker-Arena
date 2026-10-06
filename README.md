@@ -21,24 +21,17 @@ you are actually watching.
 
 ## Let your agent set it up
 
-If you use a coding agent (Claude Code, Cursor, Copilot, Codex, whatever), you
-can hand it the whole job. Paste this:
+If you have a coding agent (Claude Code, Cursor, Copilot, Codex, whatever), you
+don't need to read the rest of this file. Just say to it:
 
 ```text
-Clone https://github.com/jiale-wangOwO/LLM-Poker-Arena and set it up for me.
+Hi! Please install https://github.com/jiale-wangOwO/LLM-Poker-Arena for me and
+get it running.
 
-Please:
-1. Create a Python 3.10+ virtual environment in the project folder and activate it.
-2. pip install -r requirements.txt
-3. Run `python -m pytest` and tell me if anything fails. (It takes about a
-   minute and needs no network -- it has not hung.)
-4. Start the web table with `python -m pokerarena.web --port 8080` in the
-   background, then confirm http://127.0.0.1:8080 responds by checking
-   `curl -s http://127.0.0.1:8080/api/health`.
-5. Tell me the URL to open, and where in the UI I add my API key.
-
-Don't edit any source files -- this is just installation and verification.
+When it's ready, give me a short list of how to use it.
 ```
+
+Everything it needs is below, so it can read the instructions itself.
 
 You do not need an API key to get this far: the table deals and plays itself with
 built-in opponents. Add a key when you want real models at the table.
