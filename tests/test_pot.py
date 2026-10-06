@@ -60,12 +60,11 @@ def test_uncalled_shove_is_refunded_not_potted():
 def test_uncalled_shove_between_a_folded_player():
     """A folded player's blind is dead money that stays in the contested pots."""
     pots, refunds = build_pots({0: 1000, 1: 100, 2: 100, 3: 20}, folded={3})
-    # Layer 1: the first 20 from all four (seat 3's is dead money) = 80
-    # Layer 2: the next 80 from seats 0/1/2 = 240
+    # The folded blind is dead money in the same main pot; it cannot create a
+    # side pot because the three live players have identical eligibility.
     # The remaining 900 of seat 0's shove was never matched.
     assert [(p.amount, sorted(p.eligible)) for p in pots] == [
-        (80, [0, 1, 2]),
-        (240, [0, 1, 2]),
+        (320, [0, 1, 2]),
     ]
     assert {(r.seat, r.amount) for r in refunds} == {(0, 900)}
     assert sum(p.amount for p in pots) + 900 == 1220
@@ -110,7 +109,7 @@ def test_layering_never_loses_or_invents_chips(seed):
 
 
 @pytest.mark.parametrize("seed", range(60))
-def test_every_pot_has_at_least_two_live_contenders(seed):
+def test_every_pot_has_a_live_contender(seed):
     rng = random.Random(1000 + seed)
     seats = list(range(rng.randint(2, 6)))
     contributions = {seat: rng.choice([10, 25, 60, 150, 300]) for seat in seats}
@@ -118,7 +117,7 @@ def test_every_pot_has_at_least_two_live_contenders(seed):
 
     pots, _ = build_pots(contributions, folded)
     for pot in pots:
-        assert len(pot.eligible) >= 2, (contributions, folded, pot)
+        assert len(pot.eligible) >= 1, (contributions, folded, pot)
         assert pot.amount > 0
 
 
@@ -272,3 +271,32 @@ def test_empty_contributions_are_safe():
 def test_only_contributor_gets_everything_back():
     result = settle({0: 75}, set(), {0: 1})
     assert result.amount_for(0) == 75
+
+
+def test_matched_folded_money_is_a_pot_not_an_uncalled_refund():
+    pots, refunds = build_pots({0: 100, 1: 100, 2: 50}, folded={1})
+    assert [(p.amount, p.eligible) for p in pots] == [(150, {0, 2}), (100, {0})]
+    assert refunds == []
+    result = settle({0: 100, 1: 100, 2: 50}, {1}, {0: 10, 2: 20})
+    assert [(p.seat, p.amount) for p in result.payouts] == [(2, 150), (0, 100)]
+    assert result.refunds == []
+
+
+def test_only_unmatched_chips_are_returned_after_everyone_folds():
+    pots, refunds = build_pots({0: 1000, 1: 20}, folded={1})
+    assert [(p.amount, p.eligible) for p in pots] == [(40, {0})]
+    assert [(r.seat, r.amount) for r in refunds] == [(0, 980)]
+
+
+def test_matched_folded_layers_remain_dead_money():
+    result = settle({0: 50, 1: 100, 2: 100}, {1, 2}, {0: 10})
+    assert result.refunds == []
+    assert result.amount_for(0) == 250
+
+
+def test_folded_contribution_levels_do_not_skew_a_tied_pot():
+    contributions = {0: 100, 1: 100, 2: 21, 3: 46, 4: 71}
+    result = settle(contributions, {2, 3, 4}, {0: 42, 1: 42}, button_seat=4)
+    assert len(result.pots) == 1
+    assert result.pots[0].amount == 338
+    assert result.amount_for(0) == result.amount_for(1) == 169

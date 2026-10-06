@@ -32,8 +32,9 @@ def seats_for(personas, *, with_human=False, providers=None, human_name=""):
 
 
 def session_config(personas, **kwargs):
-    """A :class:`SessionConfig` with seats filled in from a persona list."""
+    """A headless test config; presentation timing is explicitly opted into."""
     payload = dict(kwargs)
+    payload.setdefault("hand_result_seconds", 0)
     with_human = payload.pop("with_human", False)
     providers = payload.pop("providers", None)
     payload.pop("models", None)

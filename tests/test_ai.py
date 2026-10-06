@@ -498,6 +498,11 @@ def test_cli_view_resets_the_pot_for_a_new_hand():
     ]
     players, _ = build_players(specs, starting_chips=300)
     arena = Arena(players, config=ArenaConfig(seed=6, max_rounds=5))
+    # This verifies display state across hands, so keep both seats alive with
+    # controlled calls/checks instead of depending on a bot's betting outcome.
+    arena.decide = lambda table, seat: Action(
+        ActionType.CHECK if table.legal_actions(seat).can_check else ActionType.CALL
+    )
     view = TableView(console=Console(file=io.StringIO(), width=100))
     arena.on_event = view.handle
     arena.play_hand()

@@ -109,10 +109,12 @@ def test_big_blind_gets_the_option_when_everyone_limps():
 
 
 def test_all_in_blinds_fast_forward_to_showdown_with_full_board():
-    # 2 players, 20 each: the button/SB shoves its 10 remaining chips and the
-    # big blind is already all-in, so no betting is possible.
+    # The big blind is all-in, but the button still owns the call/fold choice.
     table = make_table([20, 20], small=10, big=20, button=0)
     table.start_hand()
+    assert table.actor == 0
+    assert not table.is_hand_over
+    table.apply_action(0, Action(ActionType.CALL))
     assert table.is_hand_over, "hand should fast-forward to showdown"
     assert len(table.board) == 5, "the whole board must be dealt"
     assert table.pot == 0, "the pot must be fully distributed"

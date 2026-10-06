@@ -174,10 +174,11 @@ def test_recent_hands_appear_in_the_prompt():
     arena.play_game()
     assert arena.hand_history, "the game should have played some hands"
 
-    decider = next(iter(arena.deciders.values()))
-    decider.hand_history = arena.hand_history
     arena.table.start_hand()
-    prompt = decider._build_messages(arena.table, decider_seat(arena, decider))[-1]["content"]
+    seat = arena.table.actor
+    decider = arena.deciders[seat]
+    decider.hand_history = arena.hand_history
+    prompt = decider._build_messages(arena.table, seat)[-1]["content"]
     assert "RECENT HANDS AT THIS TABLE" in prompt
     assert "won" in prompt, "the summary should say who won"
 

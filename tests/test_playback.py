@@ -41,6 +41,7 @@ def start_game(client, **overrides):
         "starting_chips": 400,
         "max_hands": 40,
         "seed": 3,
+        "hand_result_seconds": 0,
     }
     payload.update(overrides)
     response = client.post("/api/game", json=payload)

@@ -12,7 +12,7 @@ import pytest
 
 from pokerarena.arena import Arena, AISpec, build_players
 from pokerarena.config import ArenaConfig
-from pokerarena.engine import Player, Table
+from pokerarena.engine import Action, ActionType, Player, Table
 
 
 def make_table(seats=4, chips=400, small=10, big=20):
@@ -168,7 +168,7 @@ def test_games_reach_a_single_winner(lineup, seed):
     assert arena.table.seated[0].chips == total
 
 
-def test_blinds_eventually_escalate_in_a_real_game():
+def test_blinds_eventually_escalate_in_a_real_game(monkeypatch):
     specs = [
         AISpec(name="A", persona_key="rock", model=""),
         AISpec(name="B", persona_key="rock", model=""),
@@ -177,8 +177,11 @@ def test_blinds_eventually_escalate_in_a_real_game():
     players, _ = build_players(specs, starting_chips=300)
     arena = Arena(
         players,
-        config=ArenaConfig(seed=5, max_rounds=400, blind_increase_every=10),
+        config=ArenaConfig(seed=5, max_rounds=12, blind_increase_every=10),
     )
+    # Test the tournament clock with a controlled table: model/bot choices can
+    # legitimately end a game before the first scheduled blind increase.
+    monkeypatch.setattr(arena, "decide", lambda table, seat: Action(ActionType.FOLD))
     arena.play_game()
     assert arena.table.blind_level > 1, "the clock never advanced"
     assert arena.table.ante > 0, "antes should kick in with the levels"

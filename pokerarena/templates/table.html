@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Poker Arena</title>
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
 <style>
   :root {
     --bg: #0c1016;
@@ -457,7 +458,7 @@
   .pane { display: none; }
   .pane.on { display: block; }
 
-  /* ---------------- floating player cards ---------------- */
+  /* ---------------- player inspection ---------------- */
   .pcard {
     position: fixed; width: 330px; max-height: 66vh; z-index: 70;
     background: var(--surface); border: 1px solid #2b3743; border-radius: var(--radius);
@@ -514,11 +515,12 @@
     .seat { width: 128px; }
   }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='arena.css') }}">
 </head>
 <body>
 <div id="shell">
   <div id="bar">
-    <div id="brand">&#9824; Poker <span>Arena</span></div>
+    <div id="brand"><span class="brand-icon">&#9824;</span> LLM Poker <span>Arena</span></div>
     <div class="meta"><span class="dot" id="connDot"></span><span id="statusText">No game</span></div>
     <div class="grow"></div>
     <div class="meta" id="tableMeta"></div>
@@ -527,20 +529,29 @@
     </label>
     <button class="btn" id="btnPause" disabled>Pause</button>
     <button class="btn" id="btnStep" disabled>Step</button>
+    <button class="btn ghost" id="btnStop" disabled>Stop</button>
     <button class="btn" id="btnSettings">Settings</button>
     <button class="btn primary" id="btnNew" disabled>Start game</button>
   </div>
 
   <div id="stage">
+    <div id="stageHead">
+      <div><div class="eyebrow">TEXAS HOLD'EM / SIX SEATS</div><h1 id="stageTitle">One table. Different minds.</h1></div>
+      <div id="tableSummary"></div>
+    </div>
+    <div id="tableSpace">
     <div id="felt"><div id="centre">
+      <div class="felt-brand">POKER ARENA</div>
       <div id="street">&mdash;</div>
       <div id="board"></div>
       <div id="potline"><b>0</b> <i>pot</i></div>
     </div>
-    <div id="resultPanel"></div>
+    <div id="resultPanel" role="region" aria-label="Hand result"></div>
     <div id="outRail"></div>
     <div id="lastHand"></div>
     </div>
+    </div>
+    <div id="tableFooter"><span id="tableNotice">Choose a seat to meet your opponents.</span><button class="btn ghost sm" id="btnLineup">Edit lineup</button></div>
     <div id="actions">
       <div id="actTop">
         <span id="actInfo"></span>
@@ -555,7 +566,7 @@
       <div id="raiseBox">
         <div id="raiseHead">
           <span class="lbl" id="raiseLabel">Raise to</span>
-          <input id="raiseAmount" type="text" inputmode="numeric" autocomplete="off">
+          <input id="raiseAmount" type="text" inputmode="numeric" autocomplete="off" aria-label="Total street commitment">
           <span id="raiseQuick">
             <button data-q="0.5">½<small class="amt"></small></button>
             <button data-q="0.75">¾<small class="amt"></small></button>
@@ -563,30 +574,49 @@
             <button data-q="allin">All in<small class="amt"></small></button>
           </span>
         </div>
-        <input type="range" id="raiseSlider" min="0" max="0" value="0" step="10">
+        <input type="range" id="raiseSlider" min="0" max="0" value="0" step="1" aria-label="Bet or raise amount">
         <div style="display:flex;justify-content:space-between;align-items:baseline">
           <span id="raiseHint"></span>
           <button class="abtn" id="btnRaise" style="width:auto;padding:8px 22px">Raise</button>
         </div>
       </div>
+      <div id="actionError" role="alert"></div>
     </div>
   </div>
 
   <div id="rail">
     <div id="railHead">
-      <div class="t">Action history <span class="sub" id="railSub">seat players to begin</span></div>
+      <div class="t">Hand history <span class="sub" id="railSub">seat players to begin</span></div>
+      <div class="history-tools"><button class="btn sm ghost" id="btnCollapseHistory" disabled>Collapse all</button><button class="btn sm ghost on" id="btnFollowHistory" disabled>Follow current</button></div>
     </div>
     <div id="replay">
       <button class="btn sm ghost" id="btnLive" disabled>Live</button>
-      <input type="range" id="scrub" min="0" max="0" value="0" step="1" disabled>
+      <input type="range" id="scrub" min="0" max="0" value="0" step="1" disabled aria-label="Replay action">
       <span class="lbl live" id="scrubLabel">Live</span>
     </div>
     <div id="log"></div>
   </div>
 </div>
 
+<div class="scrim" id="lobby" role="dialog" aria-modal="true" aria-labelledby="lobbyTitle">
+  <div class="sheet lobby-sheet">
+    <div class="eyebrow">BUILD YOUR TABLE</div>
+    <h2 id="lobbyTitle">Every seat has a mind of its own.</h2>
+    <p class="hint">Choose your opponents, give each a model, then take a seat or watch them play.</p>
+    <div class="lobby-modes">
+      <button class="btn" id="btnJoin">Play against AI</button>
+      <button class="btn" id="btnWatch">Watch an AI table</button>
+      <button class="btn ghost" id="btnFill">Fill empty AI seats</button>
+    </div>
+    <div id="lineupList"></div>
+    <div class="lobby-summary" id="lobbySummary"></div>
+    <div class="err" id="lobbyError" role="alert"></div>
+    <div class="foot"><button class="btn primary" id="btnDeal">Deal first hand</button><button class="btn" id="btnLobbySettings">Table &amp; models</button><button class="btn ghost" id="btnLobbyClose">Close</button></div>
+  </div>
+</div>
+
 <!-- ============================ settings ============================ -->
-<div class="scrim" id="settings">
+<div class="scrim" id="settings" role="dialog" aria-modal="true" aria-label="Settings">
   <div class="sheet">
     <h2>Settings</h2>
     <p class="hint">Providers are OpenAI-compatible endpoints. Keys are stored locally in <code>providers.json</code> and never returned to the browser.</p>
@@ -702,7 +732,7 @@
 </div>
 
 <!-- ============================ seat editor ============================ -->
-<div class="scrim" id="seatEditor">
+<div class="scrim" id="seatEditor" role="dialog" aria-modal="true" aria-labelledby="seTitle">
   <div class="sheet" style="width:min(520px,94vw)">
     <h2 id="seTitle">Seat 1</h2>
     <p class="hint" id="seHint">Choose who sits here.</p>
@@ -762,6 +792,9 @@ let sessionId = null;
 let snap = null;
 let timer = null;
 let openSeats = new Set();
+const playerCards = new Map();
+let playerPrivacy = false;
+let playerPrivacyRevision = 0;
 let viewIndex = null;
 let logKey = "";
 let providers = [];
@@ -770,6 +803,37 @@ let defaultProvider = "";
 let seats = [];                 // local seat plan: {seat, kind, persona, provider, name}
 let editingSeat = null;
 let editingProvider = null;
+let actionPending = false;
+let submittedTurn = null;
+let polling = false;
+let viewSeq = null;
+let actionError = "";
+let replayCache = new Map();
+let replayCacheSession = null;
+let replayCacheGodMode = null;
+const handOpenState = new Map();
+let historySession = null;
+let followHistory = true;
+let historyAnchorHand = null;
+let visibleHistoryHands = [];
+let handCache = new Map();
+let handCacheSession = null;
+const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+const isBusted = (p) => p.seated && p.status === "sitting_out";
+function wireSeats() {
+  $("felt").querySelectorAll(".seat").forEach((node) => {
+    node.setAttribute("role", "button"); node.tabIndex = 0;
+    const activate = () => onSeatClick(Number(node.dataset.seat));
+    node.addEventListener("click", activate);
+    node.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); activate(); }
+    });
+  });
+}
+function boardHtml(board) {
+  return Array.from({length:5}, (_, i) => board[i]
+    ? cardHtml(board[i], "lg") : '<span class="card lg empty" aria-label="Undealt community card">\u00b7</span>').join("");
+}
 
 /* ------------------------------------------------------------------ cards */
 function cardHtml(code, size) {
@@ -794,12 +858,11 @@ const SEAT_POS = [
 ];
 
 const providerLabel = (id) => {
-  if (!id) return "local bot";
+  if (!id) return "No model";
   const found = providers.find((p) => p.id === id);
   if (!found) return id;
-  // A provider with no key silently degrades to the offline brain, so say so
-  // rather than implying the seat will call a model.
-  return found.has_key ? found.label : "local bot";
+  // Missing configuration is visible before a real-model game is started.
+  return found.has_key ? found.label : `${found.label} / needs key`;
 };
 
 /** Players actually at the table: the running game if there is one, else the plan. */
@@ -817,10 +880,12 @@ function loadPlan() {
       if (Array.isArray(parsed)) return parsed;
     }
   } catch (e) { /* ignore a corrupt plan */ }
-  // A sensible starting table: two AI opponents.
+  // A compact real-model table with contrasting characters.
   return [
+    { seat: 0, kind: "human", persona: "", provider: "", name: "You" },
     { seat: 1, kind: "ai", persona: "maniac", provider: defaultProvider, name: "" },
     { seat: 3, kind: "ai", persona: "rock", provider: defaultProvider, name: "" },
+    { seat: 5, kind: "ai", persona: "shark", provider: defaultProvider, name: "" },
   ];
 }
 function savePlan() {
@@ -830,6 +895,8 @@ const seatAt = (index) => seats.find((s) => s.seat === index) || null;
 
 /* ------------------------------------------------------- replay / render */
 function replayFloor() {
+  const framed = ((snap && snap.actions) || []).findIndex((a) => !!a.replay);
+  if (framed >= 0) return framed;
   const events = (snap && snap.events) || [];
   const markers = events
     .filter((e) => e.kind === "hand_start" || e.kind === "street_start")
@@ -844,39 +911,12 @@ function stateAt(index) {
   const actions = snap.actions || [];
   const last = actions[index];
   if (!last) return snap;
-  const board = [], cards = {}, chips = {}, bets = {};
-  const folded = new Set();
-  let pot = 0, streetLabel = "Pre-Flop", hand = last.hand, winner = null;
-  (snap.players || []).forEach((p) => { chips[p.seat] = p.chips; cards[p.seat] = p.hole_cards; });
-
-  for (const ev of (snap.events || [])) {
-    if (typeof ev._ai !== "number" || ev._ai > index) continue;
-    if (ev.kind === "board_dealt") { board.length = 0; board.push(...(ev.board || ev.cards || [])); }
-    if (ev.kind === "street_start") {
-      streetLabel = ev.label;
-      if (ev.board) { board.length = 0; board.push(...ev.board); }
-    }
-    if (ev.kind === "hand_start") { streetLabel = "Pre-Flop"; board.length = 0; hand = ev.hand_number; }
-    if (ev.kind === "action_taken") {
-      chips[ev.seat] = ev.chips ?? chips[ev.seat];
-      bets[ev.seat] = ev.street_bet ?? 0;
-      if (ev.action === "fold") folded.add(ev.seat);
-      pot = ev.pot;
-    }
-    if (ev.kind === "showdown") (ev.players || []).forEach((s) => { cards[s.seat] = s.hole_cards; });
-    if (ev.kind === "payout" && ev.reason !== "uncalled_bet_returned") winner = ev.seat;
-  }
-  return {
-    ...snap, hand_number: hand, street_label: streetLabel, board, pot: last.pot ?? pot,
-    players: (snap.players || []).map((p) => ({
-      ...p,
-      chips: chips[p.seat] ?? p.chips,
-      hole_cards: cards[p.seat] ?? null,
-      street_bet: bets[p.seat] ?? 0,
-      status: folded.has(p.seat) ? "folded" : p.status,
-    })),
-    actor: null, awaiting_human: false, _winnerSeat: winner,
-  };
+  if (last.replay) return {...snap, ...last.replay, finished:false, holding_result:false,
+    hand_result:last.replay.hand_result || null, legal:null, awaiting_human:false, is_replay:true};
+  // Older servers cannot supply an accurate frame. Never mix a past action
+  // with the latest hand's private cards or stacks.
+  return {...snap, board:[], players:[], actor:null, legal:null, awaiting_human:false,
+    hand_result:null, holding_result:false, is_replay:true};
 }
 
 /* -------------------------------------------------------------- rendering */
@@ -903,54 +943,57 @@ function seatHtml(p, s) {
   const cls = ["seat",
     actor ? "is-actor" : "",
     isMe ? "is-me" : "",
+    p.status === "folded" ? "is-folded" : "",
     openSeats.has(p.seat) ? "is-viewing" : "",
     s._winnerSeat === p.seat ? "is-winner" : "",
   ].join(" ");
   const marks = [];
-  if (p.seat === s.button) marks.push("BTN");
-  if (p.seat === s.small_blind_seat) marks.push("SB");
-  if (p.seat === s.big_blind_seat) marks.push("BB");
+  if (p.position) marks.push(p.position);
+  else {
+    if (p.seat === s.button) marks.push("D");
+    if (p.seat === s.small_blind_seat) marks.push("SB");
+    if (p.seat === s.big_blind_seat) marks.push("BB");
+  }
   const persona = p.is_ai ? (p.persona_name || p.persona) : "You";
   // No persona label here: the seat already shows the player's name, and the
   // box is small.  The style is one click away in the player card.
-  const act = p.last_action && !s.finished
-    ? `<span class="act">${esc(p.last_action)}</span>` : "";
+  const act = p.status === "all_in" ? "ALL IN" : p.status === "folded" ? "Folded"
+    : actor ? (s.is_replay ? "Next to act" : s.awaiting_human ? "Your move" : "Thinking\u2026") : p.last_action || "In the hand";
   return `<div class="${cls}" style="left:${pos.left};top:${pos.top}" data-seat="${p.seat}"
        title="${esc(p.is_ai ? `${p.name} \u00b7 ${persona}` : p.name)}">
-    <div class="r1">${actor ? '<span class="turn"></span>' : ""}
-      <span class="nm">${esc(p.name)}</span><span class="st">${p.chips}</span></div>
-    <div class="r2"><span class="pos">${marks.join(" ")}</span></div>
+    <div class="r1"><span class="avatar">${esc(p.name.slice(0,1))}</span>
+      <span class="nm">${esc(p.name)}</span><span class="st">${fmt(p.chips)}</span></div>
+    <div class="r2"><span class="model">${esc(p.is_ai ? p.model : "HUMAN / YOU")}</span><span class="pos">${marks.join(" / ")}</span></div>
     <div class="cards">${
       p.hole_cards ? cardsHtml(p.hole_cards, "sm") : cardBackHtml("sm") + cardBackHtml("sm")
     }</div>
-    <div class="r3">${act}</div>
+    <div class="r3"><span class="act">${actor ? '<span class="turn"></span> ' : ""}${esc(act)}</span><span class="bb">${(p.chips / (s.big_blind || 20)).toFixed(1)} BB</span></div>
   </div>`;
 }
 
 function render() {
   if (!snap) { renderPlanPreview(); return; }
   const s = stateAt(viewIndex);
+  if (viewIndex !== null) [...openSeats].forEach((seat) => closePlayer(seat, {updateTable:false, restoreFocus:false}));
   $("street").textContent = s.street_label || "\u2014";
-  $("board").innerHTML = (s.board || []).map((c) => cardHtml(c, "lg")).join("");
-  $("potline").innerHTML = `<b>${s.pot ?? 0}</b> <i>pot</i>`;
+  $("board").innerHTML = boardHtml(s.board || []);
+  $("potline").innerHTML = `<b>${fmt(s.pot)}</b> <i>IN THE POT</i>`;
 
   const felt = $("felt");
   felt.querySelectorAll(".seat").forEach((n) => n.remove());
   (s.players || []).forEach((p) => {
     // A busted player is moved to the "Out" list rather than left dimmed on the
     // felt, where a dead box just competes with the live seats.
-    if (p.seated && p.chips <= 0) return;
+    if (isBusted(p)) return;
     felt.insertAdjacentHTML("beforeend", seatHtml(p, s));
   });
   // Attach each live wager to its owner's box, then wire up the clicks.
   (s.players || []).forEach((p) => {
-    if (!p.seated || p.chips <= 0 || p.street_bet <= 0) return;
+    if (!p.seated || isBusted(p) || p.street_bet <= 0) return;
     const seat = felt.querySelector(`.seat[data-seat="${p.seat}"]`);
     if (seat) seat.insertAdjacentHTML("beforeend", betChipHtml(p.street_bet, p.status === "all_in"));
   });
-  felt.querySelectorAll(".seat").forEach((node) => {
-    node.addEventListener("click", () => onSeatClick(Number(node.dataset.seat)));
-  });
+  wireSeats();
 
   renderResultPanel(s);
   renderLastHand(s);
@@ -958,12 +1001,13 @@ function render() {
   renderLog();
   renderActions();
   renderMeta();
+  renderTableInfo(s);
 }
 
 /** Players with no chips left, listed off the felt so they stop cluttering it. */
 function renderOutRail(s) {
   const rail = $("outRail");
-  const busted = (s.players || []).filter((p) => p.seated && p.chips <= 0);
+  const busted = (s.players || []).filter(isBusted);
   if (!busted.length) { rail.classList.remove("on"); rail.innerHTML = ""; return; }
   rail.innerHTML = `<div class="hdr">Out</div>` + busted.map((p) => `
     <div class="outChip" data-seat="${p.seat}" title="${esc(p.name)} \u2014 out of chips">
@@ -976,45 +1020,75 @@ function renderOutRail(s) {
   });
 }
 
-/** Show what just happened while the finished hand is held on screen.
- *
- * The hold scales with how much there is to read, and the card carries a
- * countdown so the pause is never a mystery.  Clicking it (or pressing space)
- * deals the next hand immediately; the same result also stays available in the
- * corner card afterwards, so nothing is lost if you looked away.
- */
+// Update the countdown independently; polling must not replace a focused skip
+// button or cause a click to disappear halfway through a pointer interaction.
+let resultKey = "";
+let holdDeadline = 0;
+let resultHoldTotal = 20;
+let skipPending = false;
+let resultIsFinal = false;
+let skipError = "";
 function renderResultPanel(s) {
   const panel = $("resultPanel");
-  if (!s.hand_result || viewIndex !== null || s.finished || !s.holding_result) {
+  if (!s.hand_result || viewIndex !== null || !s.holding_result) {
     panel.classList.remove("on");
+    resultKey = "";
     return;
   }
   const result = s.hand_result;
   const winners = result.winners || [];
   if (!winners.length) { panel.classList.remove("on"); return; }
-
-  const reveals = result.showdown.map((r) => `
+  resultHoldTotal = s.hold_total || 20;
+  s._receivedAt ??= performance.now();
+  holdDeadline = s._receivedAt + Math.max(0, s.hold_remaining || 0) * 1000;
+  resultIsFinal = s.hand_number >= s.hand_cap || s.players.filter(p => p.seated && p.chips > 0).length < 2;
+  const key = `${s.session}:${result.hand}:${s.god_mode}:${JSON.stringify(result)}`;
+  if (key === resultKey) { panel.classList.add("on"); updateResultCountdown(); return; }
+  resultKey = key;
+  skipError = "";
+  const reveals = (result.showdown || []).map((r) => `
     <div class="rp-row">
       <span class="rp-name">${esc(r.name)}</span>
       <span class="rp-cards">${cardsHtml(r.cards, "sm")}</span>
       <span class="rp-hand">${esc(r.hand_name)}</span>
     </div>`).join("");
-
-  const total = s.hold_total || 1;
-  const left = Math.max(0, s.hold_remaining || 0);
+  const payouts = (result.payouts || []).filter(p => p.reason !== "uncalled_bet_returned");
+  const awards = payouts.map(p => `<div class="rp-award"><span>${esc(p.pot_label || "Pot")} \u00b7 ${esc(p.name)}${p.split ? " (split)" : ""}</span><b>+${fmt(p.amount)}</b></div>`).join("");
+  const net = s.players.filter(p => p.seated && Object.hasOwn(result.deltas || {}, p.seat)).map(p => {
+    const delta = Number(result.deltas[p.seat]);
+    return `<span class="rp-net${delta > 0 ? " positive" : delta < 0 ? " negative" : ""}">${esc(p.name)} <b>${delta > 0 ? "+" : ""}${fmt(delta)}</b></span>`;
+  }).join("");
   panel.innerHTML = `
+    <div class="eyebrow">HAND ${result.hand} COMPLETE</div>
     <div class="rp-head">
-      <span class="rp-title">${winners.map(esc).join(" & ")} ${winners.length > 1 ? "split" : "wins"}</span>
-      <span class="rp-pot">${result.pot}</span>
+      <span class="rp-title">${winners.map(esc).join(" & ")} ${winners.length > 1 ? "win pots" : "wins"}</span>
+      <span class="rp-pot">${fmt(result.pot)}</span>
     </div>
     ${result.board.length ? `<div class="rp-board">${cardsHtml(result.board, "sm")}</div>` : ""}
-    ${reveals || `<div class="rp-none">${
-      result.board.length ? "won without a showdown" : "everyone folded pre-flop"
-    }</div>`}
-    <div class="rp-foot">click for the next hand, or press space</div>
-    <span class="rp-count"><i style="width:${Math.round((left / total) * 100)}%"></i></span>`;
+    <div class="rp-details">
+      ${reveals || `<div class="rp-none">${result.board.length ? "Won without a showdown" : "Everyone else folded pre-flop"}</div>`}
+      ${awards ? `<div class="rp-awards">${awards}</div>` : ""}
+      ${net ? `<div class="rp-net-label">NET CHIP CHANGE</div><div class="rp-nets">${net}</div>` : ""}
+    </div>
+    <div class="rp-foot"><span id="resultCountdown"></span><span>Space to skip</span></div>
+    <span class="rp-count"><i style="width:100%"></i></span>`;
+  // The skip button stays outside the scrolling result details.
+  panel.querySelector(".rp-count i").style.width = "100%";
+  panel.insertAdjacentHTML("beforeend", '<button class="btn primary" id="btnSkipResult">Skip \u00b7 next hand</button><div class="rp-error" id="resultError" role="alert"></div>');
   panel.classList.add("on");
-  panel.onclick = () => skipHold();
+  $("btnSkipResult").onclick = skipHold;
+  updateResultCountdown();
+}
+
+function updateResultCountdown() {
+  const panel = $("resultPanel");
+  if (!panel.classList.contains("on")) return;
+  const left = Math.max(0, (holdDeadline - performance.now()) / 1000);
+  $("resultCountdown").textContent = `${resultIsFinal ? "Session completes" : "Next hand"} in ${Math.ceil(left)}s`;
+  panel.querySelector(".rp-count > i").style.width = `${Math.min(100, left / resultHoldTotal * 100)}%`;
+  $("btnSkipResult").disabled = skipPending;
+  $("btnSkipResult").textContent = skipPending ? "Skipping\u2026" : resultIsFinal ? "Skip \u00b7 finish session" : "Skip \u00b7 next hand";
+  $("resultError").textContent = skipError;
 }
 
 /** The previous hand, kept in the corner until the next one is decided. */
@@ -1037,39 +1111,36 @@ function renderLastHand(s) {
 }
 
 async function skipHold() {
-  if (!sessionId) return;
-  $("resultPanel").classList.remove("on");
-  await fetch(`/api/game/${sessionId}/control`, {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({action: "skip-hold"}),
-  });
-  poll();
+  if (!sessionId || !snap?.holding_result || skipPending || viewIndex !== null) return;
+  const hand = snap.hold_hand ?? snap.hand_result?.hand;
+  skipPending = true; skipError = ""; updateResultCountdown();
+  try {
+    const response = await fetch(`/api/game/${sessionId}/control`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action: "skip-hold", hand}),
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || "Could not skip this result.");
+    if (data.skipped !== false && snap.hand_result?.hand === hand) $("resultPanel").classList.remove("on");
+    await poll();
+  } catch (e) { skipError = "Could not skip. Check your connection and try again."; }
+  finally { skipPending = false; updateResultCountdown(); }
 }
 
 /** Count the hold down smoothly between polls, so the bar is not steppy. */
 let holdTicker = null;
 function startHoldTicker() {
   if (holdTicker) return;
-  holdTicker = setInterval(() => {
-    const panel = $("resultPanel");
-    if (!panel.classList.contains("on") || !snap) return;
-    const bar = panel.querySelector(".rp-count > i");
-    if (!bar) return;
-    const total = snap.hold_total || 1;
-    // Ease the local estimate down; the next poll resyncs it exactly.
-    const current = (parseFloat(bar.style.width) / 100) * total;
-    const next = Math.max(0, current - 0.1);
-    bar.style.width = `${Math.round((next / total) * 100)}%`;
-  }, 100);
+  holdTicker = setInterval(updateResultCountdown, 100);
 }
 
 function renderPlanPreview() {
   // Before a game exists, show the plan so the table is not an empty oval.
   const felt = $("felt");
   felt.querySelectorAll(".seat").forEach((n) => n.remove());
-  $("street").textContent = "\u2014";
-  $("board").innerHTML = "";
-  $("potline").innerHTML = `<b>0</b> <i>pot</i>`;
+  $("street").textContent = "THE TABLE IS YOURS";
+  $("board").innerHTML = boardHtml([]);
+  $("potline").innerHTML = `<b>${seatedPlan().length}</b> <i>PLAYERS READY</i>`;
   for (let i = 0; i < maxSeats; i++) {
     const plan = seatAt(i);
     const pos = SEAT_POS[i];
@@ -1092,14 +1163,67 @@ function renderPlanPreview() {
         </div>`);
     }
   }
-  felt.querySelectorAll(".seat").forEach((node) => {
-    node.addEventListener("click", () => onSeatClick(Number(node.dataset.seat)));
-  });
+  wireSeats();
   renderMeta();
+  renderTableInfo(null);
 }
 
 let PERSONAS = [];
 function personaMeta(key) { return PERSONAS.find((p) => p.key === key) || null; }
+
+function renderTableInfo(s) {
+  const ai = s ? s.players.filter((p) => p.seated && p.is_ai) : seatedPlan().filter((p) => p.kind === "ai");
+  const online = s ? ai.filter((p) => p.model !== "local bot").length
+    : ai.filter((p) => providers.find((v) => v.id === p.provider)?.has_key).length;
+  $("stageTitle").textContent = s ? (viewIndex !== null ? `Reviewing hand ${s.hand_number}` : `Hand ${s.hand_number} at the table`) : "One table. Different minds.";
+  $("tableSummary").innerHTML = `<span class="mode">${online} LLM ${online === 1 ? "player" : "players"}</span><b>${s ? fmt(s.small_blind) + " / " + fmt(s.big_blind) : esc($("fBlinds").value)}</b> blinds${s ? `<span class="compact-info">${esc(s.street_label)} \u00b7 pot <b>${fmt(s.pot)}</b></span>` : ""}`;
+  $("tableNotice").textContent = !s ? "Choose a seat to meet your opponents. Review the lineup before dealing."
+    : viewIndex !== null ? `Replay #${snap.actions[viewIndex]?.seq} \u00b7 return to Live to follow the table.`
+    : s.god_mode ? "Observer view \u00b7 private cards and reasoning visible. AI players still see only their own cards."
+    : "Player view \u00b7 private cards stay hidden until shown at showdown.";
+}
+
+function renderLineup() {
+  $("lineupList").innerHTML = Array.from({length:maxSeats}, (_, i) => {
+    const p = seatAt(i); const occupied = p && p.kind !== "empty";
+    const human = occupied && p.kind === "human";
+    const name = !occupied ? "Open seat" : p.name || (human ? "You" : personaMeta(p.persona)?.name || p.persona);
+    const ready = human || providers.find((v) => v.id === p?.provider)?.has_key;
+    return `<button class="lineup-seat" data-seat="${i}"><span class="number">Seat ${i+1}</span><span class="identity">${esc(name)}<small>${occupied ? esc(human ? "Your cards. Your decisions." : `${personaMeta(p.persona)?.short || "AI player"} \u00b7 ${providerLabel(p.provider)}`) : "Choose a character or take this seat"}</small></span><span class="state${!ready && occupied ? " missing" : ""}">${!occupied ? "+ Add" : human ? "YOU" : ready ? "LLM READY" : "NEEDS MODEL"}</span></button>`;
+  }).join("");
+  $("lineupList").querySelectorAll("button").forEach((b) => b.onclick = () => openSeatEditor(Number(b.dataset.seat)));
+  const plan = seatedPlan();
+  const missing = plan.filter((p) => p.kind === "ai" && !providers.find((v) => v.id === p.provider)?.has_key);
+  $("lobbySummary").textContent = `${plan.length} players \u00b7 ${plan.some((p) => p.kind === "human") ? "You play" : "You watch"} \u00b7 ${$("fChips").value} chips \u00b7 ${$("fBlinds").value} blinds` + ($("fOffline").checked ? " \u00b7 Offline preview" : missing.length ? ` \u00b7 ${missing.length} AI seats need a model key` : " \u00b7 Real LLM game");
+  $("btnDeal").disabled = plan.length < 2;
+  $("btnDeal").textContent = snap && !snap.finished ? "Deal & replace table" : "Deal first hand";
+}
+function openLobby() {
+  renderLineup(); $("lobbyError").textContent = "";
+  $("lobby").classList.add("on"); $("btnDeal").focus();
+}
+$("btnNew").addEventListener("click", openLobby);
+$("btnLineup").addEventListener("click", openLobby);
+$("btnLobbyClose").onclick = () => $("lobby").classList.remove("on");
+$("btnLobbySettings").onclick = () => $("btnSettings").click();
+function ensureAI(seat, persona) {
+  if (!seatAt(seat)) seats.push({seat, kind:"ai", persona, provider:defaultProvider, name:""});
+}
+$("btnJoin").onclick = () => {
+  if (!seats.some((s) => s.kind === "human")) {
+    seats = seats.filter((s) => s.seat !== 0);
+    seats.push({seat:0,kind:"human",persona:"",provider:"",name:"You"});
+  }
+  ensureAI(1,"maniac"); ensureAI(3,"pro"); savePlan(); refreshSeatingUi();
+};
+$("btnWatch").onclick = () => {
+  seats = seats.map((s) => s.kind === "human" ? {...s,kind:"ai",persona:"pro",provider:defaultProvider,name:""} : s);
+  ensureAI(1,"maniac"); ensureAI(3,"rock"); ensureAI(5,"shark"); savePlan(); refreshSeatingUi();
+};
+$("btnFill").onclick = () => {
+  ["calculating","maniac","trickster","rock","pro","shark"].forEach((p,i) => ensureAI(i,p));
+  savePlan(); refreshSeatingUi();
+};
 
 function renderMeta() {
   if (!snap) {
@@ -1112,11 +1236,15 @@ function renderMeta() {
     $("btnNew").textContent = "Start game";
     $("btnPause").disabled = true;
     $("btnStep").disabled = true;
+    $("btnStop").disabled = true;
     return;
   }
   const s = snap;
   const bits = [];
-  if (s.finished) bits.push(s.winner ? `<b>${esc(s.winner)}</b> wins` : "game over");
+  if (s.stopped) bits.push("Stopped");
+  else if (s.finished && s.completion_reason === "hand_cap") bits.push("Hand limit reached");
+  else if (s.finished) bits.push(s.winner ? `<b>${esc(s.winner)}</b> wins` : "game over");
+  else if (s.holding_result) bits.push("<b>Hand complete</b>");
   else if (s.paused) bits.push("<b>Paused</b>");
   else if (s.awaiting_human) bits.push("<b>Your move</b>");
   else bits.push("Playing");
@@ -1128,71 +1256,168 @@ function renderMeta() {
     (s.ante ? ` \u00b7 ante <b>${s.ante}</b>` : "") +
     (s.blind_level > 1 ? ` \u00b7 level <b>${s.blind_level}</b>` : "") +
     (s.error ? ` \u00b7 <span style="color:var(--red)">${esc(s.error)}</span>` : "");
-  $("railSub").textContent = `${(s.actions || []).length} actions \u00b7 ${playerCount()} players`;
+  $("railSub").textContent = `${(s.hands || []).length} hands \u00b7 ${(s.actions || []).length} decisions`;
   $("btnPause").disabled = !sessionId || s.finished;
   $("btnPause").textContent = s.paused ? "Resume" : "Pause";
   $("btnStep").disabled = !sessionId || !s.paused || s.finished;
+  $("btnStop").disabled = !sessionId || s.finished;
   $("btnNew").textContent = "New game";
   $("btnNew").disabled = false;
-  // A game that is over reveals everything anyway, so the switch is moot then.
-  $("godWrap").style.opacity = s.finished ? ".55" : "1";
+  $("godWrap").style.opacity = "1";
 }
 
 /* --------------------------------------------------------------- the log */
-function renderLog() {
-  const actions = snap.actions || [];
-  const key = actions.length + ":" + (viewIndex ?? "live") + ":" + snap.hand_number;
-  if (key === logKey) return;
-  logKey = key;
-
-  const cutoff = viewIndex === null ? actions.length - 1 : viewIndex;
-  const rows = [];
-  let lastHand = null, lastStreet = null;
-  actions.forEach((a, i) => {
-    if (i > cutoff) return;
-    if (a.hand !== lastHand) {
-      lastHand = a.hand;
-      lastStreet = null;
-      rows.push(`<div class="lg hand"><span class="no"></span><span class="bd">Hand ${a.hand}</span><span class="pot"></span></div>`);
-    }
-    if (a.street_label !== lastStreet) {
-      lastStreet = a.street_label;
-      rows.push(`<div class="lg street"><span class="no"></span><span class="bd">${esc(a.street_label)}</span><span class="pot"></span></div>`);
-    }
-    const why = (a.thought || "").trim();
-    rows.push(`<div class="lg ${a.action}${i === cutoff ? " cur" : ""}" data-i="${i}">
-      <span class="no">#${a.seq}</span>
-      <span class="bd"><span class="who">${esc(a.name)}</span> <span class="ver">${VERB[a.action] || a.action}</span>` +
-      `${a.amount && SHOW_AMOUNT.has(a.action) ? ` <span class="amt">${a.amount}</span>` : ""}` +
-      `${a.speech ? ` <span class="say">&ldquo;${esc(a.speech)}&rdquo;</span>` : ""}` +
-      `${why ? `<div class="why">${esc(why.slice(0, 200))}</div>` : ""}</span>
-      <span class="pot">${a.pot != null ? a.pot : ""}</span>
-    </div>`);
-  });
-
-  const box = $("log");
-  box.innerHTML = rows.join("") ||
-    `<div class="lg"><span class="no"></span><span class="bd hint">${
-      sessionId ? "Dealing the first hand\u2026" : "Seat at least two players, then press Start game."
-    }</span><span class="pot"></span></div>`;
-  if (viewIndex === null) box.scrollTop = box.scrollHeight;
-
-  const floor = replayFloor();
-  const scrub = $("scrub");
-  scrub.max = Math.max(0, actions.length - 1);
-  scrub.min = Math.min(floor, scrub.max);
-  scrub.disabled = actions.length === 0;
-  if (viewIndex !== null) scrub.value = viewIndex;
-  $("btnLive").disabled = viewIndex === null;
-  const label = $("scrubLabel");
-  if (viewIndex === null) {
-    label.className = "lbl live";
-    label.textContent = "Live";
-  } else {
-    label.className = "lbl past";
-    label.textContent = `#${actions[viewIndex] ? actions[viewIndex].seq : "?"} / ${actions.length}`;
-  }
+function historyActionHtml(entry, actionBySeq, latestSeq) {
+  const linked = actionBySeq.get(entry.seq);
+  const action = linked?.action || entry.action;
+  const why = snap.god_mode ? (linked?.thought || "").trim() : "";
+  const replayable = !!linked?.replay;
+  const selected = viewSeq === entry.seq || (viewSeq === null && entry.seq === latestSeq);
+  return `<div class="lg ${esc(action)}${selected ? " cur" : ""}${replayable ? " replayable" : ""}" data-history-seq="${entry.seq}" ${replayable ? `data-i="${linked._index}" role="button" tabindex="0" title="Replay this action"` : ""}>
+    <span class="no">#${entry.seq ?? "\u00b7"}</span>
+    <span class="bd"><span class="who">${esc(entry.name)}</span> <span class="ver">${esc(VERB[action] || entry.action_label || action)}</span>
+      ${entry.amount && SHOW_AMOUNT.has(action) ? ` <span class="amt">${fmt(entry.amount)}</span>` : ""}
+      ${entry.source === "fallback" ? '<span class="fallback-badge">MODEL FALLBACK</span>' : ""}
+      ${entry.speech ? `<span class="say">&ldquo;${esc(entry.speech)}&rdquo;</span>` : ""}
+      ${why ? `<div class="why">${esc(why.slice(0, 200))}</div>` : ""}</span>
+    <span class="pot">${entry.pot != null ? `pot ${fmt(entry.pot)}` : ""}</span>
+  </div>`;
 }
+
+function historyResultHtml(hand, result) {
+  const payouts = (result.payouts || []);
+  const players = hand.players || [];
+  const names = new Map(players.map(p => [p.seat, p.name]));
+  const board = (result.board || []).length ? `<div class="history-board">${cardsHtml(result.board, "xs")}</div>` : "";
+  const awarded = payouts.filter(p => p.reason !== "uncalled_bet_returned").map(p =>
+    `<div class="history-payout"><span>${esc(p.pot_label || "Pot")} \u00b7 ${esc(p.name)}${p.split ? " (split)" : ""}</span><b>+${fmt(p.amount)}</b></div>`).join("");
+  const refunds = payouts.filter(p => p.reason === "uncalled_bet_returned").map(p =>
+    `<div class="history-refund">${esc(p.name)} \u00b7 uncalled bet returned <b>${fmt(p.amount)}</b></div>`).join("");
+  const shown = (result.showdown || []).map(p => `<div class="history-reveal"><span>${esc(p.name)}</span><span class="cards">${cardsHtml(p.cards, "xs")}</span><span class="rank">${esc(p.hand_name)}</span></div>`).join("");
+  const net = Object.entries(result.deltas || {}).filter(([seat]) => names.has(Number(seat))).map(([seat,delta]) =>
+    `<span class="rp-net${delta > 0 ? " positive" : delta < 0 ? " negative" : ""}">${esc(names.get(Number(seat)))} <b>${delta > 0 ? "+" : ""}${fmt(delta)}</b></span>`).join("");
+  const endAction = [...(snap.actions || [])].reverse().find(a => a.hand === hand.hand_number && a.replay?.hand_over);
+  return `<section class="history-result" aria-label="Hand ${hand.hand_number} result">
+    <div class="history-result-title">RESULT <b>${fmt(result.pot)} awarded</b></div>
+    <div class="history-winners">${(result.winners || []).map(esc).join(" & ")} ${result.winners?.length > 1 ? "win pots" : "wins"}</div>
+    ${board}${shown || `<div class="history-outcome">Won without a showdown${result.board?.length ? "" : " \u00b7 pre-flop"}</div>`}
+    ${awarded}${refunds}
+    ${net ? `<div class="history-net-label">Net chip change</div><div class="rp-nets">${net}</div>` : ""}
+    ${endAction ? `<button class="btn ghost sm" data-review-seq="${endAction.seq}">Review final table</button>` : ""}
+  </section>`;
+}
+
+function historyEntriesHtml(hand, actionBySeq, latestSeq) {
+  let lastStreet = null;
+  const rows = [];
+  for (const entry of hand.entries || []) {
+    if (entry.kind === "street") {
+      lastStreet = entry.street;
+      rows.push(`<div class="history-street"><span>${esc(entry.label || entry.street)}</span>${cardsHtml(entry.board || [], "xs")}</div>`);
+    } else if (entry.kind === "blind" || entry.kind === "ante") {
+      const label = entry.kind === "ante" ? "ante" : entry.role === "small" ? "small blind" : "big blind";
+      rows.push(`<div class="history-forced"><span class="forced-role">${entry.kind === "ante" ? "A" : entry.role === "small" ? "SB" : "BB"}</span><span><b>${esc(entry.name)}</b> posts ${label}${entry.all_in ? ' <small>all in</small>' : ""}</span><strong>${fmt(entry.amount)}</strong></div>`);
+    } else if (entry.kind === "action") {
+      if (entry.street !== lastStreet) {
+        lastStreet = entry.street;
+        rows.push(`<div class="history-street"><span>${esc(entry.street_label || entry.street)}</span></div>`);
+      }
+      rows.push(historyActionHtml(entry, actionBySeq, latestSeq));
+    }
+  }
+  return rows.join("") + (hand.result ? historyResultHtml(hand, hand.result) : '<div class="history-pending">The hand is in progress.</div>');
+}
+
+function renderLog() {
+  const box = $("log");
+  if (!snap) {
+    box.innerHTML = '<div class="history-empty">Each hand will include blinds, betting and its final result.</div>';
+    return;
+  }
+  if (historySession !== snap.session) {
+    historySession = snap.session; handOpenState.clear(); followHistory = true;
+    historyAnchorHand = null; logKey = ""; box.innerHTML = "";
+  }
+  const actions = snap.actions || [];
+  const actionBySeq = new Map(actions.map((a,i) => [a.seq, {...a, _index:i}]));
+  const selected = viewIndex === null ? null : actions[viewIndex];
+  const latestSeq = actions.at(-1)?.seq;
+  let hands = (snap.hands || []).filter(h => !selected || h.hand_number <= selected.hand);
+  // Keep a replay's narration at the selected action; its result is shown only
+  // if that captured action actually settled the hand.
+  if (selected) hands = hands.map(h => {
+    if (h.hand_number !== selected.hand) return h;
+    const next = (h.entries || []).findIndex(e => e.kind === "action" && e.seq > selected.seq);
+    const capturedBoard = selected.replay?.board || [];
+    return {...h, status:selected.replay?.hand_over ? h.status : "in_progress",
+      entries:(h.entries || []).slice(0, next < 0 ? undefined : next).filter(e =>
+        e.kind !== "street" || !e.board?.length || e.board.every((card,i) => capturedBoard[i] === card)),
+      result:selected.replay?.hand_over ? h.result : null};
+  });
+  visibleHistoryHands = hands;
+  const anchor = selected?.hand ?? snap.hand_number;
+  const wasNearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 70;
+  const scrollBefore = box.scrollTop;
+  const keep = new Set(hands.map(h => String(h.hand_number)));
+  box.querySelectorAll(".hand-log").forEach(n => { if (!keep.has(n.dataset.hand)) n.remove(); });
+  box.querySelectorAll(".history-empty").forEach(n => n.remove());
+  for (const hand of hands) {
+    let node = box.querySelector(`.hand-log[data-hand="${hand.hand_number}"]`);
+    if (!node) { node = document.createElement("details"); node.className = "hand-log"; node.dataset.hand = hand.hand_number; box.appendChild(node); }
+    const key = JSON.stringify([hand, snap.god_mode, viewSeq, hand.entries?.filter(e=>e.kind==="action").map(e=>actionBySeq.get(e.seq)?.thought)]);
+    const result = hand.result;
+    if (node.dataset.key !== key) {
+      node.dataset.key = key;
+      const completed = hand.status === "completed" && !!result;
+      const summary = completed ? `${(result.winners || []).join(" & ")} ${result.winners?.length > 1 ? "win pots" : "wins"} ${fmt(result.pot)}` : "In progress";
+      node.innerHTML = `<summary class="hand-summary"><span class="hand-summary-head"><b>Hand ${hand.hand_number}</b><span class="hand-status${completed ? " completed" : ""}">${completed ? "Complete" : "Live"}</span></span><span class="hand-summary-result">${esc(summary)}</span><span class="hand-summary-meta">Blinds ${fmt(hand.small_blind)} / ${fmt(hand.big_blind)}${hand.ante ? ` \u00b7 ante ${fmt(hand.ante)}` : ""} \u00b7 ${hand.entries?.filter(e=>e.kind==="action").length || 0} decisions</span></summary><div class="hand-body">${historyEntriesHtml(hand, actionBySeq, latestSeq)}</div>`;
+    }
+    node.open = handOpenState.has(hand.hand_number) ? handOpenState.get(hand.hand_number) : hand.hand_number === anchor;
+  }
+  if (!hands.length) box.innerHTML = '<div class="history-empty">Dealing the first hand\u2026</div>';
+  box.querySelectorAll("[data-history-seq]").forEach(n => {
+    const seq = Number(n.dataset.historySeq), linked = actionBySeq.get(seq);
+    n.classList.toggle("cur", seq === (viewSeq ?? latestSeq));
+    n.classList.toggle("replayable", !!linked?.replay);
+    if (linked?.replay) { n.dataset.i = linked._index; n.tabIndex = 0; n.setAttribute("role", "button"); n.title = "Replay this action"; }
+    else { delete n.dataset.i; n.removeAttribute("tabindex"); n.removeAttribute("role"); n.removeAttribute("title"); }
+  });
+  if (snap.history_truncated) {
+    let notice = box.querySelector(".history-limit");
+    if (!notice) { notice = document.createElement("div"); notice.className = "history-limit"; box.prepend(notice); }
+    notice.textContent = `Showing hands from #${snap.history_first_hand}.`;
+  } else box.querySelector(".history-limit")?.remove();
+  if (viewIndex === null && followHistory && (wasNearBottom || historyAnchorHand !== anchor)) box.scrollTop = box.scrollHeight;
+  else box.scrollTop = scrollBefore;
+  historyAnchorHand = anchor;
+  $("btnCollapseHistory").disabled = !hands.length;
+  $("btnFollowHistory").disabled = !hands.length;
+  $("btnFollowHistory").classList.toggle("on", followHistory);
+  $("btnFollowHistory").textContent = followHistory ? "Following current" : "Follow current";
+  const scrub = $("scrub");
+  scrub.max = Math.max(0, actions.length - 1); scrub.min = Math.min(replayFloor(), Number(scrub.max));
+  scrub.disabled = !actions.some(a => a.replay);
+  scrub.value = viewIndex === null ? scrub.max : viewIndex;
+  $("btnLive").disabled = viewIndex === null;
+  $("scrubLabel").className = "lbl " + (viewIndex === null ? "live" : "past");
+  $("scrubLabel").textContent = viewIndex === null ? "Live" : `#${selected?.seq ?? "?"} / ${actions.length}`;
+}
+
+$("btnCollapseHistory").onclick = () => {
+  visibleHistoryHands.forEach(h => handOpenState.set(h.hand_number, false));
+  followHistory = false; renderLog();
+};
+$("btnFollowHistory").onclick = () => {
+  followHistory = true; handOpenState.clear(); renderLog();
+  $("log").scrollTop = $("log").scrollHeight;
+};
+$("log").addEventListener("wheel", e => {
+  if (e.deltaY < 0) {
+    followHistory = false;
+    $("btnFollowHistory").classList.remove("on");
+    $("btnFollowHistory").textContent = "Follow current";
+  }
+}, {passive:true});
 
 /* ------------------------------------------------------------ action bar */
 /* The amount the player is composing.  It must survive the 650ms poll: this
@@ -1203,17 +1428,17 @@ let raiseAmount = null;
 let raiseTurnKey = "";
 
 const turnKey = () =>
-  snap ? `${snap.hand_number}:${snap.street}:${snap.actor}:${snap.actions.length}` : "";
+  snap ? snap.turn_token || `${snap.hand_number}:${snap.street}:${snap.actor}:${snap.actions.at(-1)?.seq || 0}` : "";
 
 function setRaiseAmount(value, {fromUser = true} = {}) {
   const lo = Number($("raiseSlider").min);
   const hi = Number($("raiseSlider").max);
-  let next = Math.round(Number(value) / 10) * 10;
+  let next = Math.round(Number(value));
   if (!Number.isFinite(next)) next = lo;
   next = Math.min(hi, Math.max(lo, next));
   raiseAmount = next;
   $("raiseSlider").value = next;
-  $("raiseAmount").value = next;
+  if (document.activeElement !== $("raiseAmount") || fromUser) $("raiseAmount").value = next;
   if (fromUser) raiseAmountTouched = true;
   syncRaiseExtras(next, lo, hi);
 }
@@ -1235,13 +1460,12 @@ function quickSizes(lo, hi) {
   const canCall = !!legal.can_call;
   const toCall = canCall ? legal.call_cost || 0 : 0;
   const potAfterCall = pot + toCall;
-  const round10 = (v) => Math.round(v / 10) * 10;
-  const clamp = (v) => Math.min(hi, Math.max(lo, round10(v)));
+  const clamp = (v) => Math.min(hi, Math.max(lo, Math.round(v)));
   const fraction = (f) => clamp(myBet + toCall + potAfterCall * f);
 
   return {
-    half: canCall ? fraction(0.5) : clamp(2.5 * bigBlind),
-    threeQuarter: canCall ? fraction(0.75) : clamp(3 * bigBlind),
+    half: snap.street === "preflop" && !canCall ? clamp(2.5 * bigBlind) : fraction(0.5),
+    threeQuarter: snap.street === "preflop" && !canCall ? clamp(3 * bigBlind) : fraction(0.75),
     pot: canCall ? fraction(1) : clamp(potAfterCall),
     allin: legal.all_in_to != null ? Math.min(hi, legal.all_in_to) : hi,
   };
@@ -1255,6 +1479,9 @@ function syncRaiseExtras(value, lo, hi) {
     const amount = map[b.dataset.q];
     b.querySelector(".amt").textContent = amount;
     b.dataset.amount = amount;
+    const pre = snap.street === "preflop" && !snap.legal.can_call;
+    if (b.dataset.q === "0.5") b.firstChild.textContent = pre ? "2.5 BB" : "\u00bd pot";
+    if (b.dataset.q === "0.75") b.firstChild.textContent = pre ? "3 BB" : "\u00be pot";
   });
 
   const isBet = !!(snap && snap.legal && !snap.legal.can_call && snap.legal.can_bet);
@@ -1274,6 +1501,13 @@ function renderActions() {
     return;
   }
   box.classList.add("on");
+  $("actionError").textContent = actionError;
+  if (actionPending || submittedTurn === turnKey()) {
+    box.querySelectorAll("button").forEach((b) => b.disabled = true);
+    $("actInfo").textContent = "Your action is being applied\u2026";
+    return;
+  }
+  box.querySelectorAll("button").forEach((b) => b.disabled = false);
   $("aFold").disabled = !legal.can_fold;
   $("aCheck").disabled = !legal.can_check;
   $("aCall").disabled = !legal.can_call;
@@ -1287,7 +1521,8 @@ function renderActions() {
   $("actInfo").innerHTML = legal.can_check
     ? "Nothing to call \u2014 you can check"
     : `To call <b>${legal.call_cost}</b>`;
-  $("actPot").textContent = `pot ${s.pot}`;
+  const odds = legal.call_equity_required != null ? 100 * legal.call_equity_required : 0;
+  $("actPot").textContent = `Pot ${fmt(s.pot)}${odds ? ` \u00b7 call odds ${odds.toFixed(1)}%` : ""}`;
   $("raiseLabel").textContent = isBet ? "Bet" : "Raise to";
 
   const box2 = $("raiseBox");
@@ -1298,19 +1533,19 @@ function renderActions() {
   box2.classList.add("on");
   const sl = $("raiseSlider");
   sl.min = lo; sl.max = hi;
-  // 10-chip granularity, as asked; never finer than the legal window allows.
-  sl.step = Math.max(10, Math.ceil((hi - lo) / 200 / 10) * 10);
+  sl.step = 1;
 
   // A new decision starts fresh; the same decision keeps what the player typed.
   const key = turnKey();
   if (key !== raiseTurnKey) {
     raiseTurnKey = key;
     raiseAmountTouched = false;
+    $("raiseAmount").blur();
   }
   if (!raiseAmountTouched || raiseAmount == null || raiseAmount < lo || raiseAmount > hi) {
     setRaiseAmount(defaultRaise(legal, lo, hi), {fromUser: false});
   } else {
-    setRaiseAmount(raiseAmount);
+    setRaiseAmount(raiseAmount, {fromUser:false});
   }
 }
 
@@ -1321,21 +1556,24 @@ function defaultRaise(legal, lo, hi) {
   const target = legal.can_call
     ? myBet + legal.call_cost + Math.round(pot * 0.6)
     : Math.round(pot * 0.6);
-  return Math.min(hi, Math.max(lo, Math.round(target / 10) * 10));
+  return Math.min(hi, Math.max(lo, Math.round(target)));
 }
 
 async function sendAction(action) {
-  if (!sessionId) return;
+  if (!sessionId || actionPending || submittedTurn === turnKey()) return;
+  actionPending = true; actionError = "";
+  const token = turnKey();
   $("actions").querySelectorAll("button").forEach((b) => (b.disabled = true));
   try {
     const r = await fetch(`/api/game/${sessionId}/action`, {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({action}),
+      body: JSON.stringify({action, turn_token:snap.turn_token}),
     });
     const data = await r.json();
-    if (data.error) $("actInfo").innerHTML = `<span style="color:var(--red)">${esc(data.error)}</span>`;
-    poll();
-  } catch (e) { /* next poll resyncs */ }
+    if (!r.ok || data.error) actionError = data.error || "Action was not accepted. Try again.";
+    else submittedTurn = token;
+  } catch (e) { actionError = "Connection interrupted. Reconnect and retry if the table is still waiting for you."; }
+  finally { actionPending = false; await poll(); renderActions(); }
 }
 
 $("actions").querySelectorAll("button[data-act]").forEach((b) => {
@@ -1347,7 +1585,7 @@ $("raiseAmount").addEventListener("input", (e) => {
   const raw = e.target.value.replace(/[^0-9]/g, "");
   if (raw === "") { raiseAmountTouched = true; return; }
   const lo = Number($("raiseSlider").min), hi = Number($("raiseSlider").max);
-  const clamped = Math.min(hi, Math.max(lo, Number(raw)));
+  const clamped = Math.min(hi, Math.max(lo, Math.round(Number(raw))));
   raiseAmount = clamped;
   raiseAmountTouched = true;
   $("raiseSlider").value = clamped;
@@ -1368,6 +1606,7 @@ $("btnRaise").addEventListener("click", () => {
 /* Before a game, a click sets the seat up.  During a game it opens that
    player's detail card, which carries a pencil to change the seat instead. */
 function onSeatClick(index) {
+  if (viewIndex !== null) return;
   if (snap && snap.players[index] && snap.players[index].seated) togglePlayer(index);
   else openSeatEditor(index);
 }
@@ -1424,7 +1663,7 @@ function syncSeatForm() {
   $("seProviderHint").innerHTML = !prov ? ""
     : prov.has_key
       ? `<span class="ok">key configured</span> \u00b7 ${esc(prov.model)}`
-      : `no key \u2014 falls back to the offline bot \u00b7 ${esc(prov.model)}`;
+      : `API key required for a real LLM game \u00b7 ${esc(prov.model)}`;
 }
 
 $("seKind").querySelectorAll(".chip").forEach((chip) => {
@@ -1477,18 +1716,47 @@ $("btnSeatSave").addEventListener("click", () => {
 function refreshSeatingUi() {
   if (snap) render(); else renderPlanPreview();
   renderMeta();
+  renderLineup();
 }
 
 /* ------------------------------------------------------------------ poll */
-async function poll() {
-  if (!sessionId) return;
+function mergeReplay(data) {
+  data._receivedAt = performance.now();
+  if (handCacheSession !== data.session) { handCache.clear(); handCacheSession = data.session; }
+  for (const hand of handCache.keys()) if (hand < data.history_first_hand) handCache.delete(hand);
+  (data.hands || []).forEach(hand => handCache.set(hand.hand_number, hand));
+  data.hands = [...handCache.values()].sort((a,b) => a.hand_number - b.hand_number);
+  if (replayCacheSession !== data.session || replayCacheGodMode !== data.god_mode) replayCache.clear();
+  replayCacheSession = data.session; replayCacheGodMode = data.god_mode;
+  const available = new Set(data.actions.map((a) => a.seq));
+  for (const seq of replayCache.keys()) if (!available.has(seq) || seq < data.replay_first_seq) replayCache.delete(seq);
+  data.actions.forEach((a) => {
+    if (a.replay) replayCache.set(a.seq, a.replay);
+    else if (replayCache.has(a.seq)) a.replay = replayCache.get(a.seq);
+  });
+  return data;
+}
+async function poll({fullReplay=false} = {}) {
+  if (!sessionId || polling) return;
+  polling = true;
+  const requestedSession = sessionId;
   try {
-    const r = await fetch(`/api/game/${sessionId}`);
-    if (!r.ok) return;
+    const params = new URLSearchParams();
+    if (!fullReplay && pendingGodMode === null && replayCacheSession === sessionId && replayCache.size) params.set("replay_after", Math.max(...replayCache.keys()));
+    const completed = handCacheSession === sessionId ? [...handCache.values()].filter(h => h.status === "completed") : [];
+    if (!fullReplay && completed.length) params.set("history_after", Math.max(...completed.map(h => h.hand_number)));
+    const query = params.size ? `?${params}` : "";
+    const r = await fetch(`/api/game/${sessionId}${query}`);
+    if (!r.ok) throw new Error("Table unavailable");
     const data = await r.json();
-    if (!data.session) return;
-    snap = data.session;
-    if (snap.finished && viewIndex !== null) viewIndex = null;
+    if (!data.session || sessionId !== requestedSession) return;
+    const previousTurn = turnKey();
+    snap = mergeReplay(data.session);
+    if (turnKey() !== previousTurn) { submittedTurn = null; actionError = ""; }
+    if (viewSeq !== null) {
+      viewIndex = snap.actions.findIndex((a) => a.seq === viewSeq && a.replay);
+      if (viewIndex < 0) { viewIndex = null; viewSeq = null; }
+    }
     // Follow the session's god mode unless the user just toggled it locally.
     if (pendingGodMode === null || pendingGodMode === snap.god_mode) {
       pendingGodMode = null;
@@ -1498,7 +1766,8 @@ async function poll() {
     openSeats.forEach((seat) => loadPlayer(seat));
   } catch (e) {
     $("connDot").className = "dot bad";
-  }
+    $("statusText").textContent = "Reconnecting\u2026";
+  } finally { polling = false; }
 }
 function startPolling() {
   if (timer) clearInterval(timer);
@@ -1523,8 +1792,16 @@ $("btnStep").addEventListener("click", async () => {
   });
   poll();
 });
-$("btnLive").addEventListener("click", () => { viewIndex = null; render(); });
-$("scrub").addEventListener("input", (e) => { viewIndex = Number(e.target.value); render(); });
+$("btnStop").addEventListener("click", async () => {
+  if (!sessionId) return;
+  try {
+    const r = await fetch(`/api/game/${sessionId}/control`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"stop"})});
+    if (!r.ok) throw new Error("Could not stop the table");
+    await poll();
+  } catch (e) { $("statusText").textContent = "Could not stop the table. Retry when connected."; }
+});
+$("btnLive").addEventListener("click", () => { viewIndex = null; viewSeq = null; render(); });
+$("scrub").addEventListener("input", (e) => { viewIndex = Number(e.target.value); viewSeq = snap.actions[viewIndex]?.seq ?? null; render(); });
 
 /* God mode: a live switch, not a per-game setting.  It gates both hole cards
    and reasoning, and never changes what the models are told. */
@@ -1540,11 +1817,22 @@ $("godToggle").addEventListener("change", async (e) => {
     body: JSON.stringify({action: "god-mode", enabled}),
   });
   logKey = "";
-  poll();
+  poll({fullReplay:true});
   openSeats.forEach((seat) => loadPlayer(seat));
 });
 
 function syncGodToggle(enabled) {
+  if (playerPrivacy !== enabled) {
+    playerPrivacy = enabled;
+    playerPrivacyRevision++;
+    // Clear private information immediately, before the control request or the
+    // next poll returns. In-flight responses from the old view are discarded.
+    playerCards.forEach((card) => {
+      card.request?.abort();
+      card.request = null;
+      card.el.querySelector(".pc-body").innerHTML = '<div class="hint">Loading\u2026</div>';
+    });
+  }
   $("godToggle").checked = enabled;
   $("godWrap").classList.toggle("on", enabled);
   $("godWrap").title = enabled
@@ -1552,37 +1840,92 @@ function syncGodToggle(enabled) {
     : "God mode off: you only see what a player at the table would see";
 }
 $("log").addEventListener("click", (e) => {
+  const summary = e.target.closest(".hand-summary");
+  if (summary) {
+    const group = summary.closest(".hand-log");
+    handOpenState.set(Number(group.dataset.hand), !group.open);
+    followHistory = false;
+    $("btnFollowHistory").classList.remove("on");
+    $("btnFollowHistory").textContent = "Follow current";
+    return;
+  }
+  const review = e.target.closest("[data-review-seq]");
+  if (review) {
+    const index = snap.actions.findIndex(a => a.seq === Number(review.dataset.reviewSeq) && a.replay);
+    if (index >= 0) { viewIndex = index; viewSeq = snap.actions[index].seq; render(); }
+    return;
+  }
   const row = e.target.closest(".lg[data-i]");
   if (!row) return;
   const index = Number(row.dataset.i);
+  if (!snap.actions[index]?.replay) return;
   viewIndex = viewIndex === index ? null : index;
+  viewSeq = viewIndex === null ? null : snap.actions[viewIndex].seq;
   render();
+});
+$("log").addEventListener("keydown", e => {
+  const row = e.target.closest(".lg[data-i]");
+  if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); row.click(); }
 });
 
 $("lastHand").addEventListener("click", () => {
   // Jump the rail to the last action of that hand: the detail is all there.
   const actions = (snap && snap.actions) || [];
   if (!actions.length) return;
-  viewIndex = actions.length - 1;
+  viewIndex = actions.findLastIndex((a) => a.hand === snap.hand_result?.hand && a.replay);
+  if (viewIndex < 0) { viewIndex = null; return; }
+  viewSeq = actions[viewIndex].seq;
+  handOpenState.set(snap.hand_result.hand, true);
   render();
 });
 
 document.addEventListener("keydown", (e) => {
-  if (e.target.matches("input, select, textarea")) return;
+  if (e.key === "Escape" && !document.querySelector(".scrim.on") && openSeats.size) {
+    e.preventDefault();
+    [...openSeats].forEach(closePlayer);
+    return;
+  }
+  if (e.target.closest(".pcard")) return;
+  if (e.key === " " && $("resultPanel").classList.contains("on") && !e.target.matches("input, select, textarea, summary, [role='button']") && !document.querySelector(".scrim.on")) {
+    e.preventDefault(); skipHold(); return;
+  }
+  if (e.target.matches("input, select, textarea, button, summary, [role='button']") || document.querySelector(".scrim.on")) return;
   if (e.key === " " || e.key === "Enter") {
     // Space advances past a finished hand; otherwise it pauses.
     if ($("resultPanel").classList.contains("on")) { e.preventDefault(); skipHold(); return; }
     if (!$("btnPause").disabled) { e.preventDefault(); $("btnPause").click(); }
   } else if (e.key === "ArrowRight" && !$("btnStep").disabled) $("btnStep").click();
-  else if (e.key === "Escape") {
-    document.querySelectorAll(".scrim.on").forEach((s) => s.classList.remove("on"));
-    [...openSeats].forEach(closePlayer);
-  }
 });
 
 /* --------------------------------------------------------------- modals */
 document.querySelectorAll(".scrim").forEach((scrim) => {
   scrim.addEventListener("click", (e) => { if (e.target === scrim) scrim.classList.remove("on"); });
+});
+const visibleDialog = () => [...document.querySelectorAll(".scrim.on")].at(-1);
+const dialogFocusables = (dialog) => [...dialog.querySelectorAll("button, input, select, textarea, [tabindex='0']")]
+  .filter((n) => !n.disabled && n.getClientRects().length);
+document.addEventListener("keydown", (e) => {
+  const dialog = visibleDialog();
+  if (!dialog) return;
+  if (e.key === "Escape") { e.preventDefault(); dialog.classList.remove("on"); return; }
+  if (e.key !== "Tab") return;
+  const nodes = dialogFocusables(dialog);
+  if (!nodes.length) return;
+  const first = nodes[0], last = nodes.at(-1);
+  if (e.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+    e.preventDefault(); first.focus();
+  }
+});
+const modalObserver = new MutationObserver(() => {
+  const dialog = visibleDialog();
+  if (dialog && !dialog.contains(document.activeElement)) dialogFocusables(dialog)[0]?.focus();
+});
+document.querySelectorAll(".scrim").forEach((n) => modalObserver.observe(n, {attributes:true, attributeFilter:["class"]}));
+document.querySelectorAll(".chip").forEach((chip) => {
+  chip.tabIndex = 0; chip.setAttribute("role", "button");
+  chip.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chip.click(); } });
 });
 $("btnSettings").addEventListener("click", () => {
   renderProviders();
@@ -1956,7 +2299,7 @@ $("btnPersonaSave").addEventListener("click", async () => {
 startHoldTicker();
 
 /* ------------------------------------------------------------- new game */
-$("btnNew").addEventListener("click", async () => {
+$("btnDeal").addEventListener("click", async () => {
   if (snap && !snap.finished) {
     // Starting over: the seat plan stays, a fresh game begins.
   }
@@ -1964,7 +2307,12 @@ $("btnNew").addEventListener("click", async () => {
   const sb = parseInt(blinds[0], 10), bb = parseInt(blinds[1] ?? blinds[0], 10);
   const plan = seatedPlan();
   if (plan.length < 2) return;
+  $("lobbyError").textContent = "";
+  if (!$("fOffline").checked && plan.some((p) => p.kind === "ai" && !providers.find((v) => v.id === p.provider)?.has_key)) {
+    $("lobbyError").textContent = "Give every AI seat a model with an API key in Settings \u2192 Providers."; return;
+  }
   const payload = {
+    replace_session: snap && !snap.finished ? sessionId : null,
     seats: plan.map((s) => ({
       seat: s.seat, kind: s.kind, persona: s.persona || "",
       provider: s.provider || "", name: s.name || "",
@@ -1979,41 +2327,97 @@ $("btnNew").addEventListener("click", async () => {
     reveal_all: $("godToggle").checked,
     speed_seconds: parseFloat($("fSpeed").value),
   };
-  $("btnNew").disabled = true;
+  $("btnDeal").disabled = true;
   try {
     const r = await fetch("/api/game", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify(payload),
     });
     const data = await r.json();
-    if (data.error) { $("startErr").textContent = data.error; return; }
+    if (!r.ok || data.error) { $("lobbyError").textContent = data.error || "Could not start this table."; return; }
     [...openSeats].forEach(closePlayer);
     sessionId = data.session.session;
-    snap = data.session;
-    viewIndex = null; logKey = "";
+    snap = mergeReplay(data.session);
+    viewIndex = null; viewSeq = null; logKey = "";
+    submittedTurn = null; actionError = "";
+    $("lobby").classList.remove("on");
+    history.replaceState(null, "", `?session=${encodeURIComponent(sessionId)}`);
     syncGodToggle(!!snap.god_mode);
     render();
     startPolling();
   } catch (e) {
-    $("startErr").textContent = "Request failed: " + e;
+    $("lobbyError").textContent = "Request failed: " + e;
   } finally {
-    $("btnNew").disabled = false;
+    $("btnDeal").disabled = false;
   }
 });
 
-/* ------------------------------------------------------ floating players */
+/* ----------------------------------------------------- floating players */
 function togglePlayer(seat) { openSeats.has(seat) ? closePlayer(seat) : openPlayer(seat); }
 
+function bringPlayerForward(el) {
+  const windows = [...document.querySelectorAll(".pcard")]
+    .filter((card) => card !== el)
+    .sort((a, b) => Number(a.style.zIndex) - Number(b.style.zIndex));
+  windows.push(el);
+  // Keep all player windows below the settings/seat-editor dialogs.
+  windows.forEach((card, index) => { card.style.zIndex = 70 + index; });
+}
+
+function keepPlayerInViewport(el, left = parseFloat(el.style.left) || 12, top = parseFloat(el.style.top) || 12) {
+  const margin = 12;
+  const width = document.documentElement.clientWidth || window.innerWidth;
+  const height = window.innerHeight;
+  const rect = el.getBoundingClientRect();
+  el.style.left = `${Math.max(margin, Math.min(width - rect.width - margin, left))}px`;
+  el.style.top = `${Math.max(margin, Math.min(height - rect.height - margin, top))}px`;
+}
+
+function makeDraggable(el, handle) {
+  const listeners = new AbortController();
+  let drag = null;
+  const finish = () => {
+    if (drag && handle.hasPointerCapture(drag.pointer)) handle.releasePointerCapture(drag.pointer);
+    drag = null;
+    el.classList.remove("is-dragging");
+  };
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    const rect = el.getBoundingClientRect();
+    drag = {pointer:event.pointerId, x:event.clientX, y:event.clientY, left:rect.left, top:rect.top};
+    handle.setPointerCapture(event.pointerId);
+    el.classList.add("is-dragging");
+    event.preventDefault();
+  }, {signal:listeners.signal});
+  handle.addEventListener("pointermove", (event) => {
+    if (!drag || drag.pointer !== event.pointerId) return;
+    keepPlayerInViewport(el, drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+  }, {signal:listeners.signal});
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => {
+    handle.addEventListener(name, finish, {signal:listeners.signal});
+  });
+  window.addEventListener("resize", () => keepPlayerInViewport(el), {signal:listeners.signal});
+  const observer = new ResizeObserver(() => keepPlayerInViewport(el));
+  observer.observe(el);
+  return () => { finish(); listeners.abort(); observer.disconnect(); };
+}
+
 function openPlayer(seat) {
-  const player = (snap.players || []).find((p) => p.seat === seat);
+  if (viewIndex !== null) return;
+  const player = (snap?.players || []).find((p) => p.seat === seat);
   if (!player || !player.seated) return;
+  const existing = playerCards.get(seat);
+  if (existing) { bringPlayerForward(existing.el); loadPlayer(seat); return; }
   openSeats.add(seat);
   const el = document.createElement("div");
   el.className = "pcard";
   el.dataset.seat = seat;
+  el.setAttribute("role", "dialog");
+  el.setAttribute("aria-label", `${player.name} player details`);
+  el.tabIndex = -1;
   const offset = openSeats.size - 1;
-  el.style.left = `${Math.min(window.innerWidth - 344, 40 + offset * 26)}px`;
-  el.style.top = `${70 + offset * 22}px`;
+  el.style.left = `${32 + offset * 30}px`;
+  el.style.top = `${88 + offset * 26}px`;
   el.innerHTML = `
     <div class="pc-head" data-drag="1">
       <div class="av">${esc((player.persona_name || player.name || "?").slice(0, 1))}</div>
@@ -2022,7 +2426,7 @@ function openPlayer(seat) {
       ${player.is_ai || player.seat === snap.human_seat
         ? '<button class="pc-edit" title="Change this seat">&#9998;</button>'
         : ""}
-      <button class="x" title="Close">&times;</button>
+      <button class="x" title="Close" aria-label="Close ${esc(player.name)} details">&times;</button>
     </div>
     <div class="pc-stats"></div>
     <div class="pc-tabs">
@@ -2032,6 +2436,12 @@ function openPlayer(seat) {
     </div>
     <div class="pc-body"><div class="hint">Loading\u2026</div></div>`;
   document.body.appendChild(el);
+  const card = {el, request:null, requestKey:"", requestRevision:0, cleanup:makeDraggable(el, el.querySelector(".pc-head"))};
+  playerCards.set(seat, card);
+  bringPlayerForward(el);
+  keepPlayerInViewport(el);
+  el.addEventListener("pointerdown", () => bringPlayerForward(el));
+  el.addEventListener("focusin", () => bringPlayerForward(el));
   el.querySelector(".x").addEventListener("click", () => closePlayer(seat));
   const edit = el.querySelector(".pc-edit");
   if (edit) {
@@ -2043,66 +2453,80 @@ function openPlayer(seat) {
   el.querySelectorAll(".pc-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       el.querySelectorAll(".pc-tab").forEach((t) => t.classList.toggle("on", t === tab));
+      if (el.dataset.tab === tab.dataset.tab) return;
       el.dataset.tab = tab.dataset.tab;
+      el.querySelector(".pc-body").innerHTML = '<div class="hint">Loading\u2026</div>';
       loadPlayer(seat);
     });
   });
-  makeDraggable(el, el.querySelector(".pc-head"));
   el.dataset.tab = "history";
   loadPlayer(seat);
   render();
+  el.focus({preventScroll:true});
 }
 
-function closePlayer(seat) {
+function closePlayer(seat, {updateTable = true, restoreFocus = true} = {}) {
   openSeats.delete(seat);
-  const el = document.querySelector(`.pcard[data-seat="${seat}"]`);
-  if (el) el.remove();
-  render();
-}
-
-function makeDraggable(el, handle) {
-  let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
-  handle.addEventListener("mousedown", (e) => {
-    if (e.target.closest("button")) return;
-    dragging = true; sx = e.clientX; sy = e.clientY;
-    ox = parseFloat(el.style.left) || 0; oy = parseFloat(el.style.top) || 0;
-    handle.style.cursor = "grabbing"; e.preventDefault();
-  });
-  window.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    el.style.left = `${Math.max(4, Math.min(window.innerWidth - 100, ox + e.clientX - sx))}px`;
-    el.style.top = `${Math.max(4, Math.min(window.innerHeight - 60, oy + e.clientY - sy))}px`;
-  });
-  window.addEventListener("mouseup", () => { dragging = false; handle.style.cursor = "grab"; });
+  const card = playerCards.get(seat);
+  if (!card) return;
+  const wasFocused = card.el.contains(document.activeElement);
+  card.request?.abort();
+  card.cleanup();
+  card.el.remove();
+  playerCards.delete(seat);
+  if (updateTable) render();
+  if (restoreFocus && wasFocused) document.querySelector(`.seat[data-seat="${seat}"]`)?.focus({preventScroll:true});
 }
 
 async function loadPlayer(seat) {
-  const el = document.querySelector(`.pcard[data-seat="${seat}"]`);
-  if (!el) return;
+  if (viewIndex !== null) return;
+  const card = playerCards.get(seat);
+  if (!card) return;
+  const el = card.el;
   const id = sessionId || (snap && snap.session);
   if (!id) return;
-  sessionId = id;
+  // Wait for the table to acknowledge a privacy switch before fetching a
+  // detail response; another browser may still be changing the shared view.
+  if (pendingGodMode !== null && pendingGodMode !== snap?.god_mode) return;
   const tab = el.dataset.tab || "history";
+  const privacyRevision = playerPrivacyRevision;
+  const key = `${id}:${tab}:${privacyRevision}`;
+  if (card.request && card.requestKey === key) return;
+  card.request?.abort();
+  const controller = new AbortController();
+  const revision = ++card.requestRevision;
+  card.request = controller;
+  card.requestKey = key;
   const wantContext = tab === "context" ? "?context=1" : "";
+  const isCurrent = () => playerCards.get(seat) === card && el.isConnected
+    && card.requestRevision === revision && viewIndex === null
+    && (sessionId || snap?.session) === id && el.dataset.tab === tab
+    && playerPrivacyRevision === privacyRevision;
   try {
-    const r = await fetch(`/api/game/${id}/player/${seat}${wantContext}`);
+    const r = await fetch(`/api/game/${id}/player/${seat}${wantContext}`, {signal:controller.signal});
     const data = await r.json();
-    if (data.error) {
-      el.querySelector(".pc-body").innerHTML = `<div class="hint">${esc(data.error)}</div>`;
+    if (!isCurrent()) return;
+    if (!r.ok || data.error || !data.player) {
+      el.querySelector(".pc-body").innerHTML = `<div class="hint">${esc(data.error || "Could not load this player.")}</div>`;
       return;
     }
     renderPlayerCard(seat, data.player);
   } catch (e) {
+    if (!isCurrent() || e.name === "AbortError") return;
     const body = el.querySelector(".pc-body");
     if (body && body.textContent.startsWith("Loading")) {
       body.innerHTML = '<div class="hint">Could not load this player.</div>';
     }
+  } finally {
+    if (card.request === controller) card.request = null;
   }
 }
 
 function renderPlayerCard(seat, p) {
   const el = document.querySelector(`.pcard[data-seat="${seat}"]`);
   if (!el) return;
+  el.setAttribute("aria-label", `${p.name} player details`);
+  el.querySelector(".x").setAttribute("aria-label", `Close ${p.name} details`);
   el.querySelector(".av").textContent = (p.persona_name || p.name || "?").slice(0, 1);
   el.querySelector(".n").textContent = p.name;
   el.querySelector(".s").textContent = [p.persona_name, p.is_ai ? p.model : "human"]
@@ -2154,6 +2578,14 @@ function renderPlayerCard(seat, p) {
   } else {
     const ctx = p.context;
     const mem = p.memory || {};
+    if (!p.reasoning_visible) {
+      body.innerHTML = '<div class="hint">This player\'s private context is hidden. Enable God mode to inspect it.</div>';
+      return;
+    }
+    if (!p.is_ai) {
+      body.innerHTML = '<div class="hint">Human seat \u2014 decisions and table talk are recorded in History.</div>';
+      return;
+    }
     if (!ctx || !ctx.length) { body.innerHTML = '<div class="hint">No context recorded for this seat.</div>'; return; }
     body.innerHTML = `
       <div class="hint" style="margin-bottom:8px">

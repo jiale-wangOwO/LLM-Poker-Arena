@@ -130,7 +130,7 @@ class LegalActions:
     min_raise_to: int
     max_raise_to: int
     all_in_to: int | None
-    """Total street commitment if the player shoves, or None if chips are 0."""
+    """Total commitment for a legal shove, or None when all-in is unavailable."""
 
     def __post_init__(self) -> None:
         """A menu that offers an impossible range is worse than no menu.
@@ -215,6 +215,8 @@ class Player:
     """Chips committed during the current hand (drives side pots)."""
 
     has_acted: bool = False
+    acted_at_bet: int = 0
+    """Bet level when this player last acted; short raises reopen cumulatively."""
 
     last_action: Action | None = None
     thoughts: list[str] = field(default_factory=list)
@@ -278,6 +280,7 @@ class Player:
     def new_street(self) -> None:
         self.street_bet = 0
         self.has_acted = False
+        self.acted_at_bet = 0
 
     def receive(self, amount: int) -> None:
         """Give chips back to a player, clearing a stale all-in status.
@@ -299,6 +302,7 @@ class Player:
         self.street_bet = 0
         self.hand_contribution = 0
         self.has_acted = False
+        self.acted_at_bet = 0
         self.last_action = None
         self.thoughts = []
         # ``conversation`` deliberately survives across hands: a seat remembers
@@ -398,6 +402,7 @@ class Table:
         self.deck = Deck(self.rng)
 
         self.button = 0
+        self._hand_blind_seats: tuple[int, int] | None = None
         self.hand_number = hand_number_offset
         self.street = Street.COMPLETE
 
@@ -527,6 +532,8 @@ class Table:
 
         Heads-up is special: the button posts the small blind.
         """
+        if self._hand_blind_seats is not None:
+            return self._hand_blind_seats
         if len(self.seated) == 2:
             small = self.button
             big = self._require(self._next_seat((self.button + 1) % len(self.players), lambda p: p.status is not PlayerStatus.SITTING_OUT))
@@ -576,6 +583,13 @@ class Table:
 
         for player in self.players:
             player.new_hand()
+
+        if len(self.seated) < 2:
+            raise ValueError("A hand needs at least two players with chips")
+        if self.players[self.button].status is PlayerStatus.SITTING_OUT:
+            self.button = self._require(self._next_seat(self.button, _can_post_blind))
+        self._hand_blind_seats = None
+        self._hand_blind_seats = self.blind_seats()
 
         for player in self.seated:
             player.hole_cards = self.deck.deal(2)
@@ -627,7 +641,9 @@ class Table:
         small_amount = small_player.commit(self.small_blind)
         big_amount = big_player.commit(self.big_blind)
 
-        self.current_bet = max(self.current_bet, big_player.street_bet)
+        # An underfunded big blind does not reduce the minimum bring-in for
+        # the other players. Excess that nobody can match is returned later.
+        self.current_bet = self.big_blind
         self.last_full_raise_to = self.big_blind
         self._record_contribution(small_player, small_amount)
         self._record_contribution(big_player, big_amount)
@@ -701,15 +717,25 @@ class Table:
         """Deal the board out when no further betting is possible.
 
         Happens when only one player is left (hand ends immediately) or when at
-        most one player still has chips to act (everyone else is all-in).
+        most one player has chips and has already covered every all-in wager.
         """
         if self.is_hand_over:
             return
         if len(self.contenders) <= 1:
             self._end_hand_early()
             return
-        if len(self.actable) <= 1:
+        if not self.actable:
             self._run_out_board()
+        elif len(self.actable) == 1:
+            player = self.actable[0]
+            price = max(p.street_bet for p in self.contenders if p.seat != player.seat)
+            if player.street_bet >= price:
+                self._run_out_board()
+            else:
+                # A player with chips still gets to decide whether to call or
+                # fold to an all-in; no further side-pot betting is possible.
+                self.current_bet = price
+                self.actor = player.seat
 
     def _run_out_board(self) -> None:
         """Deal every remaining street with no betting, then show down."""
@@ -761,7 +787,11 @@ class Table:
         can_call = to_call > 0 and player.chips > 0
         can_check = to_call == 0
 
-        raise_allowed = player.chips > call_cost
+        reopened = (
+            not player.has_acted
+            or self.current_bet - player.acted_at_bet >= self.last_full_raise_to
+        )
+        raise_allowed = player.chips > call_cost and reopened and len(self.actable) > 1
         min_raise_to = max(self.current_bet + self.last_full_raise_to, self.big_blind)
         max_raise_to = player.street_bet + player.chips
         can_raise = raise_allowed and max_raise_to > self.current_bet
@@ -790,7 +820,7 @@ class Table:
             max_bet_to=max_raise_to if can_bet else 0,
             min_raise_to=min_raise_to if can_raise else 0,
             max_raise_to=max_raise_to if can_raise else 0,
-            all_in_to=max_raise_to if player.chips > 0 else None,
+            all_in_to=max_raise_to if player.chips > 0 and (can_raise or max_raise_to <= self.current_bet) else None,
         )
 
     def normalize_action(self, seat: int, action: Action) -> Action:
@@ -831,7 +861,7 @@ class Table:
 
         if kind is ActionType.ALL_IN:
             if legal.all_in_to is None:
-                raise IllegalAction("No chips left to shove")
+                raise IllegalAction("All-in is unavailable: betting is closed or no opponent can call extra")
             return Action(
                 ActionType.ALL_IN,
                 amount=legal.all_in_to,
@@ -841,6 +871,8 @@ class Table:
             )
 
         if kind in (ActionType.BET, ActionType.RAISE):
+            if not legal.can_raise:
+                raise IllegalAction("Betting is not open for a raise; use call, check or fold")
             target = action.amount
             if target is None or target <= 0:
                 raise IllegalAction("A bet/raise needs a positive target amount")
@@ -891,9 +923,10 @@ class Table:
         -------------------
         A player still owes an action while ``street_bet < current_bet`` or while
         they have not acted yet on this street.  A full raise hands everybody
-        else a fresh action; a *short* all-in raise does not, which falls out of
-        the same rule for free -- it only pulls in players who were already
-        behind the new amount.
+        else a fresh action; a *short* all-in raise only pulls in players who
+        are behind the new amount. Raising rights are tracked separately by
+        the bet level faced at their last action, so cumulative short all-ins
+        can reopen betting without treating each one as a full raise.
         """
         applied = self.normalize_action(seat, action)
         player = self.players[seat]
@@ -924,6 +957,7 @@ class Table:
                             other.has_acted = False
 
         player.has_acted = True
+        player.acted_at_bet = self.current_bet
         player.last_action = applied
 
         # The ordered record of this hand, which is what makes the betting
@@ -943,6 +977,7 @@ class Table:
                 "pot": self.pot_total,
                 "full_raise": was_full_raise,
                 "all_in": player.status is PlayerStatus.ALL_IN,
+                "speech": applied.speech,
             }
         )
 
@@ -970,6 +1005,9 @@ class Table:
 
     def _advance_after_action(self, seat: int) -> None:
         """Find the next actor, or close the street when betting is done."""
+        if len(self.actable) <= 1:
+            self._maybe_run_out()
+            return
         if self._street_betting_complete():
             self._close_street()
             return
@@ -1018,21 +1056,32 @@ class Table:
             return
         if len(self.actable) <= 1:
             # Everyone else is all-in; run the rest of the board out.
-            self.to_showdown()
+            self._run_out_board()
             return
 
         self.actor = self.postflop_first_seat()
 
     def _end_hand_early(self) -> None:
         """Everyone folded but one: award the pot without a showdown."""
+        from .pot import build_pots
+
         winner = self.contenders[0]
-        total = self.pot
-        # Record the pot before zeroing it: the hand history reports the size of
-        # the pot that was actually won, and without this an uncontested hand
-        # looked like it was played for nothing.
-        self.pots_snapshot = [{"amount": total, "eligible": [winner.seat], "side": False}]
+        folded = {p.seat for p in self.players if p.status is PlayerStatus.FOLDED}
+        pots, refunds = build_pots(self.hand_contributions, folded)
+        total = sum(pot.amount for pot in pots)
+        self.pots_snapshot = [
+            {"amount": pot.amount, "eligible": sorted(pot.eligible), "side": pot.is_side_pot}
+            for pot in pots
+        ]
         self.showdown_results = []
         self.pot = 0
+        for refund in refunds:
+            player = self.players[refund.seat]
+            player.receive(refund.amount)
+            self.emit(
+                POT_AWARDED, seat=refund.seat, name=player.name,
+                amount=refund.amount, reason="uncalled_bet_returned", pot_index=-1,
+            )
         self.emit(
             POT_AWARDED,
             seat=winner.seat,
@@ -1072,7 +1121,6 @@ class Table:
     def _settle_pots(self, scores: dict[int, int], revealed: list[dict]) -> None:
         from .pot import settle
 
-        pot_before = self.pot
         folded = {p.seat for p in self.players if p.status is PlayerStatus.FOLDED}
         result = settle(
             dict(self.hand_contributions),
@@ -1124,7 +1172,7 @@ class Table:
         self.emit(
             HAND_END,
             reason="showdown",
-            pot=pot_before,
+            pot=sum(pot.amount for pot in result.pots),
             results=revealed,
         )
         self.street = Street.COMPLETE
@@ -1132,6 +1180,13 @@ class Table:
     # -- game progression ---------------------------------------------------
     def rotate_button(self) -> None:
         """Move the button to the next seated player."""
+        if len(self.seated) == 2 and self._hand_blind_seats is not None:
+            # On becoming heads-up, the old big blind becomes the button/SB
+            # when still seated, so nobody has to post the big blind twice.
+            previous_big = self._hand_blind_seats[1]
+            if self.players[previous_big].status is not PlayerStatus.SITTING_OUT:
+                self.button = previous_big
+                return
         nxt = self._next_seat(
             (self.button + 1) % len(self.players),
             lambda p: p.status is not PlayerStatus.SITTING_OUT,

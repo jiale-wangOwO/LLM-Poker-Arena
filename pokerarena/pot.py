@@ -69,9 +69,9 @@ def build_pots(
 
     Returns ``(pots, refunds)``.  Everything is derived from the contributions
     by walking upward through the distinct commitment levels.  A level whose
-    participants include two or more live players is a pot layer; a level only
-    one live player could reach is that player's own uncalled money and comes
-    straight back.  Folded players' chips stay in the layers as dead money.
+    participants include two or more contributors is a pot layer, even if only
+    one remains eligible to win it. A sole contributor's unmatched layer is
+    returned. Folded players' matched chips stay in pots as dead money.
     """
     contributions = {
         seat: amount for seat, amount in contributions.items() if amount > 0
@@ -92,15 +92,22 @@ def build_pots(
         if not amount:
             continue
 
-        if len(eligible) >= 2:
-            # A real layer: two or more live players can contest it.
-            pots.append(Pot(amount=amount, eligible=eligible, is_side_pot=bool(pots)))
-        elif eligible:
-            # Exactly one live player reaches this level.  They are the only
-            # person who put that layer in over everyone else, so it is uncalled
-            # money and goes back to them.
-            owner = next(iter(eligible))
+        if len(participants) == 1:
+            owner = next(iter(participants))
             refunds.append(Payout(seat=owner, amount=amount, pot_index=-1))
+        elif eligible:
+            # Matched money is a pot, even with only one eligible winner.
+            # Folded contribution levels do not create another side pot when
+            # the live eligibility is unchanged. Splitting such layers apart
+            # would award multiple odd chips to the same tied player.
+            if pots and pots[-1].eligible == eligible:
+                pots[-1].amount += amount
+            else:
+                pots.append(Pot(amount=amount, eligible=eligible, is_side_pot=bool(pots)))
+        elif pots:
+            # Matched folded chips remain dead money for the lower live pot.
+            # This mostly protects imported histories with unusual fold order.
+            pots[-1].amount += amount
         else:
             # Every participant folded.  Return each share to its contributor
             # rather than vaporising the chips.

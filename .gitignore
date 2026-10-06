@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .pytest_tmp/
+.pytest_tmp_*/
 .vscode/
 .idea/
 .venv/

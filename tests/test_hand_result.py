@@ -167,6 +167,66 @@ def test_skip_hold_is_accepted(client):
     )
     assert response.status_code == 200
     assert "error" not in response.get_json()
+    assert response.get_json()["skipped"] is False
+
+
+def test_default_twenty_second_hold_and_hand_scoped_skip_api(client):
+    session_id = start(
+        client, personas=["rock", "pro"], max_hands=2, starting_chips=1000,
+        hand_result_seconds=None,
+    )
+    control_url = f"/api/game/{session_id}/control"
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            state = snap(client, session_id)
+            if state["holding_result"]:
+                break
+            time.sleep(0.01)
+        assert state["holding_result"]
+        assert state["hold_total"] == 20
+        assert state["hold_remaining"] > 19
+        hand = state["hold_hand"]
+        assert hand == state["hand_result"]["hand"]
+
+        stale = client.post(control_url, json={"action": "skip-hold", "hand": hand - 1})
+        assert stale.status_code == 200 and stale.get_json()["skipped"] is False
+        assert snap(client, session_id)["holding_result"]
+
+        skipped = client.post(control_url, json={"action": "skip-hold", "hand": hand})
+        assert skipped.status_code == 200 and skipped.get_json()["skipped"] is True
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            after = snap(client, session_id)
+            if after["finished"] or after["hand_number"] > hand:
+                break
+            time.sleep(0.01)
+        assert after["finished"] or after["hand_number"] > hand
+        repeated = client.post(control_url, json={"action": "skip-hold", "hand": hand})
+        assert repeated.get_json()["skipped"] is False
+    finally:
+        client.post(control_url, json={"action": "stop"})
+
+
+def test_result_exposes_public_payout_details_without_private_fields():
+    from pokerarena.web_state import GameSession
+
+    record = {
+        "hand_number": 5,
+        "payouts": [
+            {"seat": 2, "name": "Player", "amount": 120, "reason": "showdown",
+             "pot_label": "Main pot", "split": True, "hand": "private evaluator result"},
+            {"seat": 2, "name": "Player", "amount": 10, "reason": "uncalled_bet_returned"},
+        ],
+        "pots": [{"amount": 240, "eligible": [1, 2], "side": False, "private": "hidden"}],
+    }
+    result = GameSession._hand_result(record)
+    assert result["payouts"][0] == {
+        "seat": 2, "name": "Player", "amount": 120, "reason": "showdown",
+        "pot_label": "Main pot", "split": True,
+    }
+    assert result["payouts"][1]["reason"] == "uncalled_bet_returned"
+    assert result["pots"] == [{"amount": 240, "eligible": [1, 2], "side": False}]
 
 
 @pytest.mark.parametrize("seed", [2, 4, 7, 11, 13])
@@ -239,7 +299,9 @@ def test_an_uncontested_pot_keeps_its_size():
     assert table.hand_number == 1
     assert table.pots_snapshot, "an uncontested hand must still record a pot"
     total = sum(pot["amount"] for pot in table.pots_snapshot)
-    assert total == 30, f"expected the blinds (30) to be the whole pot, got {total}"
+    # The uncalled 10 of the big blind is returned separately. Both players'
+    # matched 10 form the pot actually awarded.
+    assert total == 20, f"expected the matched blinds (20) to be the pot, got {total}"
     assert table.pot == 0, "the pot must be paid out"
 
 

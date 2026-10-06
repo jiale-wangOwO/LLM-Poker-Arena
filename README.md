@@ -2,14 +2,14 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-784%20passing-brightgreen.svg)](#tests)
+[![Tests](https://github.com/jiale-wangOwO/LLM-Poker-Arena/actions/workflows/tests.yml/badge.svg)](https://github.com/jiale-wangOwO/LLM-Poker-Arena/actions/workflows/tests.yml)
 
 Texas Hold'em where every seat at the table is a different AI opponent with its
 own personality — played by whatever language model you point it at.
 
 Seven characters ship with it: a maths-first grinder, a hyper-aggressive maniac,
 an ultra-tight nit, a deceptive trickster, a sticky calling station, a balanced
-pro and a ruthless exploiter. Same cards for everyone; the personalities are what
+pro and a ruthless exploiter. Same rules for everyone; the personalities are what
 you are actually watching.
 
 ![The table](docs/01-table.png)
@@ -31,8 +31,8 @@ get it running.
 When it's ready, give me a short list of how to use it.
 ```
 
-You do not need an API key to get this far: the table deals and plays itself with
-built-in opponents. Add a key when you want real AI at the table.
+You can open and configure the table without an API key. Add a key to play with
+real LLM opponents; an explicit offline preview is available for interface checks.
 
 ---
 
@@ -72,9 +72,9 @@ Install the dependencies:
 pip install -r requirements.txt
 ```
 
-Four packages: the OpenAI client, Flask for the web table, `rich` for the
-terminal view, and pytest. The poker engine itself uses only the standard
-library.
+The runtime uses the OpenAI client, Flask for the web table and `rich` for the
+terminal view. Pytest and `websocket-client` support the regression suite and
+browser checks. The poker engine itself uses only the standard library.
 
 Confirm it works:
 
@@ -90,12 +90,25 @@ python -m pokerarena.web --port 8080
 
 Open **<http://127.0.0.1:8080>**.
 
-There is no setup wizard. Empty chairs on the felt are clickable: click one,
-choose **AI** or **You**, pick a character, and press save. Then press
-**New game**.
+Press **Start game** to review the lineup. Choose **Play against AI** or
+**Watch an AI table**, edit any seat's character and model, then **Deal first hand**.
+Empty chairs on the felt remain clickable. Missing model keys are shown before
+dealing, and start errors stay inside the lineup dialog.
 
-To seat yourself, use one human seat and fill the rest with characters. To watch,
-make them all AI.
+The table shows each player's model, position, stack in big blinds, current
+action and committed chips. An all-in player stays at the table until the hand
+is settled. Click a player to inspect its profile and decisions; God mode also
+lets you inspect its private context.
+
+Hand history keeps the full story: blinds and antes, bets, table talk, public
+boards and the final payout. Revisit an earlier hand to see what changed, who
+showed their cards, and where the chips went. Results remain available after the
+session ends.
+
+Your bet composer survives live updates and accepts whole-chip amounts. Presets
+use the pot after calling when facing a bet; postflop opening presets use pot
+fractions. The server binds each human action to a turn token, so double clicks
+and stale tabs cannot queue an action for the next turn.
 
 ### Adding your model
 
@@ -123,8 +136,27 @@ counters live in memory only and reset when you restart the server.
 
 ### Running several games
 
-**New game** starts another session; the browser follows the newest. Open
-`http://127.0.0.1:8080/?session=<id>` to return to a specific one.
+**New game** reviews a replacement lineup, then stops the previous table when
+the new one is successfully created. **Stop** ends the current table without
+declaring a winner. An API call already in flight may finish and incur usage;
+its returned move is discarded and no further decision is requested.
+
+The API can still create independent sessions. Open
+`http://127.0.0.1:8080/?session=<id>` to return to one of the four retained sessions;
+evicted sessions are stopped. Reaching the hand cap shows the chip leader(s),
+and is distinct from winning through elimination.
+
+Click a history row or drag the replay slider to inspect a captured action.
+Recent 400 frames retain the actual board, stacks, positions and all-in/fold
+status. Earlier views never borrow cards or payouts from a later hand. Return to
+**Live** to act or inspect a live player. Replay polling downloads new frames
+incrementally and resets its cache when the viewing mode changes.
+
+Every completed hand stays on screen for **20 seconds**, including preflop
+folds, showdowns and the final hand. The result shows winners, pot awards,
+revealed hands and net chip changes, with a live countdown. Click
+**Skip · next hand** (or press Space) to continue early; the last hand's button
+finishes the session. Folded cards remain private in normal view.
 
 ## Playing in the terminal instead
 
@@ -187,7 +219,10 @@ vanish without anyone noticing.
   ties split evenly, odd chip to the first winner left of the button.
 * **Betting closure.** A seat owes action while it is behind the price or still
   holding an unspent action. A full raise reopens the betting for everyone; a
-  short all-in does not.
+  single short all-in does not. Cumulative short raises reopen action once that
+  player faces at least a full raise since their last action. Short big blinds
+  preserve the nominal bring-in, and sole live stacks still owe a call or fold
+  against an all-in opponent.
 * **Chip conservation.** Asserted event by event across full games, not merely at
   the end, so a leak cannot hide behind a compensating one.
 
@@ -215,6 +250,32 @@ personality, and a way of talking is all it takes. Editing a built-in duplicates
 it, so you cannot break a template.
 
 To add one in code, see [Adding a persona](#adding-a-persona).
+
+## What an LLM player knows
+
+Every decision includes the player's own hole cards, public board, stable
+positions, preflop/postflop action order, who still owes action, all street
+actions and sanitized table talk. Call prices exclude side-pot layers that the
+player cannot win; effective stacks separate future betting from already all-in
+opponents. Estimated hand strength is explicitly a rough baseline, not a known
+opponent range.
+
+Each seat retains its own conversation and the latest three brief plans/results.
+It also observes a rolling window of 40 completed hands: VPIP, preflop raises,
+folds facing bets and publicly shown hands. Counts include their opportunity
+denominators and flag small samples. Empty chairs and blind-only shoves do not
+become fictional opponents or voluntary decisions.
+
+Opponent private reasoning and unshown cards never enter this context. Failed
+model decisions are remembered and displayed as **MODEL FALLBACK**, so a
+recovery move is distinguishable from the model's choice.
+
+Human and AI-controlled opponents use the same public information. Each player
+is identified uniformly by seat number and display name; a name such as `You`
+does not mean the observing AI's own seat. Opponent control type, model and
+configured persona are absent from the prompt. Human raises, calls, folds and
+all-ins enter the same logs and observed statistics as every other player's
+actions. Each AI's own character and private conversation are retained.
 
 ## Table talk never gives a hand away
 
@@ -248,8 +309,9 @@ makes every seat's private reasoning readable.
 
 It is **display only**. The prompts sent to the models never contain another
 seat's cards, so turning it on does not make anyone play better. With it off you
-see what a player at the table sees; if there is no human seat at all, you see
-nothing, because there is no hand that is yours.
+see your own cards and cards actually shown at showdown. Folded hands stay
+hidden, including in deal events, history and replay. Spectators see public
+showdown cards but have no private hand of their own.
 
 ## Configuration
 
@@ -260,7 +322,7 @@ the CLI, the web dialog and the web API.
 |---|---|---|
 | `DEFAULT_MAX_HANDS` | 200 | hands per game before the safety valve stops it |
 | `memory_turns` | 50 | previous decisions each seat keeps in its prompt |
-| `hand_result_seconds` | 4.5 | base pause on a finished hand (0 disables) |
+| `hand_result_seconds` | 20 | fixed seconds per hand result (0 disables for tests/API use) |
 | `blind_increase_every` | 15 | hands per blind level; `0` disables the clock |
 | `blind_increase_factor` | 1.5 | how much each level raises the blinds |
 | `ante_fraction` | 0.25 | ante as a fraction of the big blind, from level 2 |
@@ -269,7 +331,7 @@ the CLI, the web dialog and the web API.
 ## Tests
 
 ```bash
-python -m pytest                       # 784 tests, no network needed
+python -m pytest                       # no network needed
 python -m pytest tests/test_engine.py  # the rules
 python -m pytest tests/test_pot.py     # side pots
 python -m pytest tests/test_ai.py      # the legality firewall
@@ -278,9 +340,9 @@ python -m pytest tests/test_ai.py      # the legality firewall
 Beyond the suite, three audits check things a hand-written test tends to miss:
 
 ```bash
-python tools/fuzz_engine.py 5000        # random hands, checking rules after every action
-python tools/verify_evaluator.py 25000  # hand evaluator vs an independent brute-force reference
-python tools/audit_bot.py               # is the offline opponent legal, and does it use the price?
+python -m tools.fuzz_engine 5000        # random hands, checking rules after every action
+python -m tools.verify_evaluator 25000  # hand evaluator vs an independent brute-force reference
+python -m tools.audit_bot               # is the offline opponent legal, and does it use the price?
 ```
 
 `tools/fuzz_engine.py` also submits actions the engine never offered, because a
@@ -289,15 +351,18 @@ language model can return anything and the engine has to refuse it.
 ## Development tools
 
 ```bash
-python tools/gen_preflop_ranking.py   # rebuild the 169-hand equity ordering
-python tools/calibrate_ranges.py      # percentile -> VPIP calibration table
-python tools/persona_report.py        # measure persona behaviour
-python tools/verify_conservation.py   # assert conservation event by event
+python -m tools.gen_preflop_ranking   # rebuild the 169-hand equity ordering
+python -m tools.calibrate_ranges      # percentile -> VPIP calibration table
+python -m tools.persona_report        # measure persona behaviour
+python -m tools.verify_conservation   # assert conservation event by event
 python tools/llm_smoketest.py --hands 2 --model deepseek-flash   # cheap live check
 python tools/sample_table_talk.py     # show every persona reacting to one situation
 python tools/scan_secrets.py          # check staged files for credentials
 python tools/scan_history.py          # check every blob ever committed
 python tools/cdp.py                   # drive the live page over the DevTools Protocol
+python tools/check_web_ui.py --base http://127.0.0.1:8082  # browser workflow + responsive checks
+python tools/check_history_ui.py --base http://127.0.0.1:8083  # grouped history + privacy
+python tools/check_hand_result_ui.py --base http://127.0.0.1:8083  # 20-second hold + skip
 ```
 
 `tools/cdp.py` launches Chrome with remote debugging so you can assert on
@@ -340,12 +405,12 @@ python.exe to PATH" was ticked during installation.
 or the virtual environment is not active. `cd` into the project folder and
 re-activate `.venv`.
 
-**The web page opens but the table is empty** — that is expected on a fresh
-install. Click an empty chair on the felt to seat a player, then press
-**New game**.
+**An AI seat says NEEDS MODEL** — add an API key in **Settings → Providers**, then
+select that provider for the seat. Offline preview remains available under
+**Settings → Table defaults** for interface checks.
 
 **Everything is instant and the cards flip too fast** — raise **AI pacing** in
-the New game dialog to around `0.5s`.
+**Settings → Table defaults** to around `0.5s`.
 
 **A local model on `127.0.0.1` returns 502** — a system HTTP proxy (Clash,
 Fiddler, Charles) is intercepting loopback traffic. Set

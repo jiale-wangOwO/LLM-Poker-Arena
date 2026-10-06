@@ -3,71 +3,74 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LLM Poker Arena — put a language model in every seat</title>
-<meta name="description" content="A poker table where every seat is a different character played by a language model. Seven personalities, real Texas Hold'em, and any OpenAI-compatible model you want to sit down.">
+<title>LLM Poker Arena — seven personalities, one table, your move</title>
+<meta name="description" content="Bring your favourite language models to Texas Hold'em. Play against distinct AI characters who remember the action and build their own reads, or watch the table unfold.">
 <meta name="color-scheme" content="dark">
 <meta property="og:title" content="LLM Poker Arena">
-<meta property="og:description" content="Put a language model in every seat, then watch who blinks.">
+<meta property="og:description" content="Seven personalities. One table. Your move. Bring your favourite language models to Texas Hold'em.">
 <meta property="og:type" content="website">
-<meta property="og:image" content="01-table.png">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>♠</text></svg>">
+<meta property="og:image" content="https://jiale-wangowo.github.io/LLM-Poker-Arena/01-table.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%E2%99%A0%3C/text%3E%3C/svg%3E">
 <style>
   :root {
-    --bg: #0b0f14;
-    --surface: #111823;
-    --surface-2: #17202c;
-    --line: #24313f;
-    --ink: #e8eef5;
-    --dim: #9fb0c2;
-    --faint: #6b7d90;
-    --gold: #e8b44a;
-    --green: #4bd48a;
-    --blue: #58a6ff;
-    --red: #ef6355;
-    --purple: #b98cf0;
-    --radius: 14px;
-    --maxw: 1080px;
+    --bg: #0b0f14; --surface: #111823; --surface-2: #17202c;
+    --line: #24313f; --ink: #e8eef5; --dim: #aab9c9;
+    --faint: #8b9daf; --gold: #e8b44a; --green: #4bd48a;
+    --blue: #58a6ff; --red: #ef6355; --purple: #b98cf0;
+    --radius: 14px; --maxw: 1080px;
   }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 16.5px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, "Noto Sans", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
   code, pre, .mono {
     font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
-                 "Liberation Mono", monospace;
+      "Liberation Mono", monospace;
   }
   a { color: var(--gold); text-decoration: none; }
   a:hover { text-decoration: underline; }
+  a:focus-visible { outline: 3px solid var(--gold); outline-offset: 5px; border-radius: 4px; }
+  .skip-link {
+    position: absolute; left: 12px; top: -80px; z-index: 2;
+    padding: 9px 15px; background: var(--gold); color: var(--bg); font-weight: 700;
+  }
+  .skip-link:focus { top: 12px; }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
-
-  /* ---------- hero ---------- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px; padding-top: 24px; padding-bottom: 20px;
+  }
+  .brand { color: var(--ink); font-weight: 750; letter-spacing: -.3px; }
+  .brand span { color: var(--gold); margin-right: 8px; }
+  .nav { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13.5px; }
+  .nav a { color: var(--dim); padding: 4px 0; }
   header {
     position: relative; overflow: hidden; border-bottom: 1px solid var(--line);
     background:
       radial-gradient(900px 420px at 50% -10%, rgba(75,212,138,.15), transparent 70%),
       radial-gradient(700px 300px at 88% 8%, rgba(232,180,74,.10), transparent 70%),
       var(--bg);
-    padding: 76px 0 0;
   }
+  .hero { padding-top: 46px; }
   .eyebrow {
     display: inline-flex; align-items: center; gap: 8px;
-    font-size: 12px; letter-spacing: 1.4px; text-transform: uppercase;
+    font-size: 12px; letter-spacing: 1.3px; text-transform: uppercase;
     color: var(--gold); border: 1px solid rgba(232,180,74,.35);
     background: rgba(232,180,74,.07); border-radius: 999px; padding: 5px 13px;
   }
   h1 {
-    font-size: clamp(2.2rem, 5.4vw, 3.5rem); line-height: 1.08;
-    margin: 24px 0 16px; letter-spacing: -1.2px; font-weight: 800;
+    font-size: clamp(2.15rem, 5.4vw, 3.5rem); line-height: 1.08;
+    margin: 24px 0 18px; letter-spacing: -1.2px; font-weight: 800;
   }
   h1 .accent { color: var(--gold); }
-  .lede { font-size: clamp(1.05rem, 2.2vw, 1.24rem); color: var(--dim); max-width: 60ch; margin: 0 0 28px; }
+  .lede { font-size: clamp(1.05rem, 2.2vw, 1.22rem); color: var(--dim); max-width: 60ch; margin: 0 0 28px; }
   .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
   .btn {
-    display: inline-flex; align-items: center; gap: 9px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 9px;
     border-radius: 10px; padding: 13px 22px; font-weight: 700; font-size: 15.5px;
     border: 1px solid transparent; transition: filter .15s, transform .06s;
   }
@@ -75,405 +78,227 @@
   .btn:active { transform: translateY(1px); }
   .btn.primary { background: var(--gold); color: #241a08; }
   .btn.ghost { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
-  .note { font-size: 14px; color: var(--faint); }
+  .note { font-size: 14px; color: var(--faint); max-width: 75ch; }
   .note b { color: var(--dim); font-weight: 600; }
-
-  .hero-shot { margin: 44px 0 -1px; }
+  .hero-shot { margin: 40px 0 -1px; }
   .hero-shot img {
     display: block; width: 100%; height: auto;
     border-radius: var(--radius) var(--radius) 0 0;
     border: 1px solid var(--line); border-bottom: none;
     box-shadow: 0 -10px 60px rgba(0,0,0,.6);
   }
-
-  /* ---------- sections ---------- */
-  section { padding: 74px 0; border-bottom: 1px solid var(--line); }
-  section:last-of-type { border-bottom: none; }
-  h2 { font-size: clamp(1.5rem, 3.3vw, 2rem); margin: 0 0 12px; letter-spacing: -.5px; }
-  h3 { font-size: 1.08rem; margin: 0 0 6px; }
-  .sub { color: var(--dim); margin: 0 0 34px; max-width: 66ch; font-size: 1.02rem; }
-
-  /* ---------- characters ---------- */
-  .cast { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-  .who {
+  main section { padding: 68px 0; border-bottom: 1px solid var(--line); }
+  main section:last-of-type { border-bottom: none; }
+  h2 { font-size: clamp(1.5rem, 3.3vw, 2rem); margin: 0 0 12px; letter-spacing: -.5px; line-height: 1.25; }
+  h3 { font-size: 1.08rem; margin: 0 0 6px; line-height: 1.4; }
+  .sub { color: var(--dim); margin: 0 0 30px; max-width: 70ch; font-size: 1.02rem; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .card {
     background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--radius); padding: 20px 20px 18px;
-    display: flex; flex-direction: column; gap: 10px;
+    border-radius: var(--radius); padding: 22px;
   }
-  .who-top { display: flex; align-items: center; gap: 13px; }
-  .av {
-    width: 44px; height: 44px; border-radius: 50%; flex: none;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 19px; font-weight: 800; color: #10161e;
-  }
-  .who-name { font-size: 1.12rem; font-weight: 700; line-height: 1.25; }
-  .who-tag { font-size: 12.5px; color: var(--faint); }
-  .who-style { color: var(--dim); font-size: 14.6px; margin: 0; }
-  .who .quote {
-    border-left: 2px solid var(--line); padding: 2px 0 2px 13px;
-    color: var(--ink); font-size: 14.8px; font-style: italic; margin: 2px 0 0;
-  }
-  .who .quote .act { font-style: normal; color: var(--gold); font-weight: 600; }
-  .traits { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
-  .trait {
-    font-size: 11px; letter-spacing: .4px; text-transform: uppercase;
-    color: var(--faint); border: 1px solid var(--line); border-radius: 999px;
-    padding: 2px 9px;
-  }
-  .trait.hot { color: var(--red); border-color: rgba(239,99,85,.4); }
-  .trait.cold { color: var(--blue); border-color: rgba(88,166,255,.4); }
-  .trait.sly { color: var(--purple); border-color: rgba(185,140,240,.4); }
-
-  /* ---------- moment (shared situation) ---------- */
-  .moment {
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--radius); overflow: hidden; margin-bottom: 26px;
-  }
-  .moment-bar {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    padding: 13px 18px; background: var(--surface-2); border-bottom: 1px solid var(--line);
-    font-size: 13px; color: var(--faint);
-  }
-  .moment-bar .cards { display: flex; gap: 5px; margin-left: auto; }
-  .pc {
-    width: 30px; height: 42px; border-radius: 5px; background: #fbfcfd; color: #12181f;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 14px; font-family: ui-monospace, Consolas, monospace;
-    box-shadow: 0 1px 3px rgba(0,0,0,.5);
-  }
-  .pc.r { color: #cf3b30; }
-  .moment-body { padding: 18px; color: var(--dim); font-size: 15px; }
-  .moment-body b { color: var(--ink); font-weight: 600; }
-
-  /* ---------- figures ---------- */
-  figure { margin: 0; }
-  figure img {
-    display: block; width: 100%; height: auto; border-radius: 12px;
-    border: 1px solid var(--line); box-shadow: 0 10px 40px rgba(0,0,0,.5);
-  }
-  figcaption { color: var(--faint); font-size: 14px; margin-top: 12px; }
-  figcaption b { color: var(--dim); font-weight: 600; }
-  .shot + .shot { margin-top: 40px; }
-
-  /* ---------- models ---------- */
-  .seats { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-  .seatcard {
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: 12px; padding: 17px 18px;
-  }
-  .seatcard .k { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
-  .seatcard .v { font-size: 15.5px; color: var(--ink); margin-top: 5px; }
-  .seatcard .v span { color: var(--dim); }
-
-  pre {
-    background: #0d131b; border: 1px solid var(--line); border-radius: 12px;
-    padding: 17px 19px; overflow-x: auto; font-size: 14px; line-height: 1.75;
-    color: #cfe0f0; margin: 0 0 16px;
-  }
-  pre .c { color: var(--faint); }
-  pre .k { color: var(--gold); }
-  p code, li code { background: #0d131b; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 13.6px; color: #cfe0f0; }
-
+  .card p { color: var(--dim); font-size: 14.8px; margin: 0; }
+  .step { color: var(--gold); font-size: 12px; letter-spacing: 1px; font-weight: 700; margin-bottom: 12px; }
+  .context { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .context .card { border-top: 2px solid var(--green); }
   .callout {
     border-left: 3px solid var(--gold); background: rgba(232,180,74,.06);
     border-radius: 0 10px 10px 0; padding: 15px 19px; color: var(--dim); font-size: 15px;
   }
   .callout b { color: var(--ink); }
-
-  footer { padding: 48px 0 64px; color: var(--faint); font-size: 14.5px; }
+  .cast { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .who { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  .who-top { display: flex; align-items: center; gap: 12px; margin-bottom: 13px; }
+  .av {
+    width: 42px; height: 42px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 800; color: #10161e;
+  }
+  .who-name { font-size: 1.08rem; font-weight: 700; line-height: 1.25; }
+  .who-tag { font-size: 12.5px; color: var(--faint); }
+  .who p { color: var(--dim); font-size: 14.5px; margin: 0; }
+  .custom { display: flex; flex-direction: column; justify-content: center; border-style: dashed; }
+  figure { margin: 0; }
+  figure img {
+    display: block; width: 100%; height: auto; border-radius: 12px;
+    border: 1px solid var(--line); box-shadow: 0 10px 40px rgba(0,0,0,.35);
+  }
+  figcaption { color: var(--dim); font-size: 14.5px; margin-top: 14px; max-width: 80ch; }
+  figcaption b { color: var(--ink); font-weight: 650; }
+  .shot + .shot { margin-top: 36px; }
+  .shot h3 { margin-bottom: 16px; font-size: 1.2rem; }
+  .setup { display: grid; gap: 24px; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; }
+  pre {
+    background: #0d131b; border: 1px solid var(--line); border-radius: 12px;
+    min-width: 0; padding: 18px 20px; overflow-x: auto; font-size: 13.5px; line-height: 1.8;
+    color: #cfe0f0; margin: 0;
+  }
+  pre .c { color: var(--faint); }
+  p code, li code { background: #0d131b; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font-size: .84em; color: #cfe0f0; overflow-wrap: anywhere; }
+  .instructions { margin: 0; padding-left: 22px; color: var(--dim); font-size: 15px; }
+  .instructions li + li { margin-top: 12px; }
+  .instructions b { color: var(--ink); }
+  footer { padding: 32px 0 48px; color: var(--faint); font-size: 14px; border-top: 1px solid var(--line); }
+  footer .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }
+  footer p { margin: 0; }
   footer a { color: var(--dim); }
-
-  @media (max-width: 640px) {
-    header { padding-top: 50px; }
-    section { padding: 52px 0; }
+  @media (max-width: 850px) {
+    .grid, .cast { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .setup { grid-template-columns: minmax(0, 1fr); }
+    .grid .card:last-child { grid-column: 1 / -1; }
+    .context .card:last-child { grid-column: auto; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding-right: 18px; padding-left: 18px; }
+    .topbar { align-items: flex-start; flex-direction: column; gap: 10px; padding-top: 20px; }
+    .nav { gap: 6px 20px; }
+    .hero { padding-top: 26px; }
+    h1 { letter-spacing: -.75px; }
+    h1 br { display: none; }
+    main section { padding: 48px 0; }
+    .grid, .context, .cast { grid-template-columns: minmax(0, 1fr); }
+    .cta .btn { width: 100%; }
+    .hero-shot { margin-top: 28px; }
+    .card, .who { padding: 20px; }
+    pre { padding: 15px; font-size: 12px; }
+    footer .wrap { flex-direction: column; align-items: flex-start; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .btn { transition: none; }
   }
 </style>
 </head>
 <body>
-
+<a class="skip-link" href="#main">Skip to content</a>
 <header>
-  <div class="wrap">
-    <span class="eyebrow">Texas Hold'em &middot; any model you like</span>
-    <h1>Put a language model in every seat,<br>then watch <span class="accent">who blinks</span>.</h1>
-    <p class="lede">
-      Seven players, seven personalities, one table. One does the maths out loud.
-      One raises every street for the fun of it. One has been waiting all night
-      for a real hand. Deal them in and see how long you can read them.
-    </p>
+  <div class="wrap topbar">
+    <a class="brand" href="#"><span aria-hidden="true">♠</span> LLM Poker Arena</a>
+    <nav class="nav" aria-label="Main navigation">
+      <a href="#context">At the table</a>
+      <a href="#experience">Take a look</a>
+      <a href="#cast">Characters</a>
+      <a href="#run">Run locally</a>
+    </nav>
+  </div>
+  <div class="wrap hero">
+    <span class="eyebrow">Texas Hold'em &middot; models at the table</span>
+    <h1>Seven personalities.<br> One table. <span class="accent">Your move.</span></h1>
+    <p class="lede">A patient grinder. A relentless raiser. Someone who never believes your bluff. Bring your favourite models to Texas Hold'em, watch their personalities collide, or take a seat and test your own reads.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">View GitHub to install</a>
+      <a class="btn primary" href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">Get the project on GitHub <span aria-hidden="true">↗</span></a>
       <a class="btn ghost" href="#cast">Meet the players</a>
     </div>
-    <p class="note">
-      <b>Nothing to configure to start.</b> Deal a game with no model at all and
-      the seats play themselves, straight away.
-    </p>
-    <div class="hero-shot">
-      <img src="01-table.png" alt="The poker table: four players around a green felt with a five-card board and chips in front of a player, and a panel on the right listing every action with the thinking behind it.">
-    </div>
+    <p class="note">A look inside the arena. Run the playable table locally with Python and your model endpoint.</p>
+    <figure class="hero-shot">
+      <img src="01-table.png" alt="LLM Poker Arena's browser table, with player seats around the felt and hand history beside it." fetchpriority="high">
+    </figure>
   </div>
 </header>
 
+<main id="main">
+<section id="lineup">
+  <div class="wrap">
+    <h2>There is more than one way to read this table</h2>
+    <p class="sub">The same game can be a challenge, a character study, or a chance to see what your favourite model does under pressure.</p>
+    <div class="grid">
+      <div class="card"><div class="step">TAKE A SEAT</div><h3>Make them read you</h3><p>Find out who folds to your pressure, who pays you off, and who has been waiting for you to overplay a hand.</p></div>
+      <div class="card"><div class="step">WATCH THE TABLE</div><h3>Let the characters clash</h3><p>Patience meets aggression. Caution meets curiosity. Follow the bets and the banter as a hand unfolds.</p></div>
+      <div class="card"><div class="step">BRING YOUR MODELS</div><h3>Change the matchup</h3><p>Give one model several personalities, or bring different models to the same table. See how each handles the spot in front of it.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="context">
+  <div class="wrap">
+    <h2>They remember the action.<br>They still have to read the room.</h2>
+    <p class="sub">A personality makes an entrance. Context gives it something to work with: the price of a call, the story in the bets, and the opponent who keeps showing up.</p>
+    <div class="grid context">
+      <div class="card"><h3>A hand with a past</h3><p>Every decision carries the betting history and public table talk. Each AI also keeps its own recent decisions and plans, so the next move has a past to draw on.</p></div>
+      <div class="card"><h3>Reads earned at the table</h3><p>Players build observations from public behaviour: who enters pots, who raises, who folds under pressure. You leave the same trail as every other opponent.</p></div>
+      <div class="card"><h3>Real stakes within the hand</h3><p>Position, stacks and the price to call shape the decision. Short stacks, side pots and all-ins belong to the game, all the way through the showdown.</p></div>
+      <div class="card"><h3>Secrets worth keeping</h3><p>Each player knows its own cards and private reasoning. Everyone shares the board, the bets and the talk. Other hands stay a mystery until they are shown.</p></div>
+    </div>
+    <div class="callout" style="margin-top:24px"><b>Curious what they were thinking?</b> Peek at the private reasoning as an observer, or keep it hidden and trust your reads. The models keep playing with their own information either way.</div>
+  </div>
+</section>
+
+<section id="experience">
+  <div class="wrap">
+    <h2>Good hands deserve a second look</h2>
+    <p class="sub">Follow the action, savour the showdown, and go back to the bet that changed everything.</p>
+    <figure class="shot">
+      <h3>The cards, the conversation, the thought behind the bet</h3>
+      <img src="01-table.png" alt="Browser poker table with hand history on the right and player details available from each seat." loading="lazy">
+      <figcaption>A raise can mean confidence, a read, or a bluff. Follow a player's reasoning to see the story it was trying to tell.</figcaption>
+    </figure>
+    <figure class="shot" id="results">
+      <h3>Time to read the hand</h3>
+      <img src="02-result.png" alt="End-of-hand result showing the winner, pot, revealed cards and a countdown with a skip control." loading="lazy">
+      <figcaption>The hand has an ending: who won, what they showed, and where the chips went. Take a moment to read it, or skip ahead when you are ready.</figcaption>
+    </figure>
+    <figure class="shot" id="history">
+      <h3>Every hand leaves a story</h3>
+      <img src="04-history.png" alt="Hand history grouped by hand, with an expanded result and earlier hands available as collapsible headers." loading="lazy">
+      <figcaption>From blinds and first bets to the final payout, the complete hand stays together. Revisit an old pot and see how it was built, one decision at a time.</figcaption>
+    </figure>
+  </div>
+</section>
+
 <section id="cast">
   <div class="wrap">
-    <h2>Meet the players</h2>
-    <p class="sub">
-      Each one is a written character with its own instincts, its own way of
-      talking, and its own idea of what a good hand looks like. They are the whole
-      point: the cards are the same for everyone, the personalities are not.
-    </p>
+    <h2>Seven characters to start with. Room for yours.</h2>
+    <p class="sub">Each character gives its model a point of view and a way of talking. The cards and the table decide what happens next.</p>
     <div class="cast">
-
-      <div class="who">
-        <div class="who-top">
-          <div class="av" style="background:#7fd1e8">A</div>
-          <div><div class="who-name">Alice</div><div class="who-tag">cold, maths-first, zero ego</div></div>
-        </div>
-        <p class="who-style">Thinks in ranges and pot odds. Folds without regret, value-bets thinly, and does not care what happened in the last hand.</p>
-        <p class="quote">&ldquo;Your sizing is telling a story.&rdquo; <span class="act">raises</span></p>
-        <div class="traits"><span class="trait cold">disciplined</span><span class="trait">no tilt</span></div>
-      </div>
-
-      <div class="who">
-        <div class="who-top">
-          <div class="av" style="background:#ef6355">R</div>
-          <div><div class="who-name">Rex</div><div class="who-tag">hyper-aggressive pressure machine</div></div>
-        </div>
-        <p class="who-style">Raises more than is reasonable, three-bets light, barrels every street. Would rather lose a big pot swinging than win a small one quietly.</p>
-        <p class="quote">&ldquo;Time to pay the toll, big shooter.&rdquo; <span class="act">raises</span></p>
-        <div class="traits"><span class="trait hot">relentless</span><span class="trait">bluffs often</span></div>
-      </div>
-
-      <div class="who">
-        <div class="who-top">
-          <div class="av" style="background:#8b9bab">T</div>
-          <div><div class="who-name">Tom</div><div class="who-tag">ultra-tight, waits for the nuts</div></div>
-        </div>
-        <p class="who-style">Folds almost everything. When he finally raises, believe him &mdash; he simply does not raise light. Happy to bleed blinds all night for one right spot.</p>
-        <p class="quote">&ldquo;You're making it expensive to be patient, Rex.&rdquo; <span class="act">calls</span></p>
-        <div class="traits"><span class="trait cold">rock</span><span class="trait">rarely bluffs</span></div>
-      </div>
-
-      <div class="who">
-        <div class="who-top">
-          <div class="av" style="background:#b98cf0">Z</div>
-          <div><div class="who-name">Zoe</div><div class="who-tag">deceptive, unbalanced, impossible to read</div></div>
-        </div>
-        <p class="who-style">Slow-plays monsters, bluffs with nothing, sometimes folds a decent hand just to keep you guessing. Being unreadable matters more to her than any single pot.</p>
-        <p class="quote">&ldquo;Let's see if you like a bigger number.&rdquo; <span class="act">raises</span></p>
-        <div class="traits"><span class="trait sly">tricky</span><span class="trait">unreadable</span></div>
-      </div>
-
-      <div class="who">
-        <div class="who-top">
-          <div class="av" style="background:#4bd48a">B</div>
-          <div><div class="who-name">Bob</div><div class="who-tag">sticky, curious, hates folding</div></div>
-        </div>
-        <p class="who-style">Calls far too much because he always wants to see one more card. Rarely raises, rarely believes you. He keeps you honest by paying you off.</p>
-        <p class="quote">&ldquo;Fine, one more card, I'm curious now.&rdquo; <span class="act">calls</span></p>
-        <div class="traits"><span class="trait hot">sticky</span><span class="trait">no folding</span></div>
-      </div>
-
-      <div class="who">
-        <div class="who-top">
-          <div class="av" style="background:#58a6ff">S</div>
-          <div><div class="who-name">Sam</div><div class="who-tag">balanced, modern, solver-influenced</div></div>
-        </div>
-        <p class="who-style">Well-chosen bet sizes, defends his blinds, applies pressure in position, gives up gracefully when the story stops adding up. Adjusts to whoever he is against.</p>
-        <p class="quote">&ldquo;That line doesn't add up.&rdquo; <span class="act">folds</span></p>
-        <div class="traits"><span class="trait cold">balanced</span><span class="trait">adapts</span></div>
-      </div>
-
-      <div class="who">
-        <div class="who-top">
-          <div class="av" style="background:#e8b44a">M</div>
-          <div><div class="who-name">Max</div><div class="who-tag">exploitative, punishes every weakness</div></div>
-        </div>
-        <p class="who-style">Watches you for a few hands, finds the leak, then attacks it without mercy: bluffs the folders, value-bets the callers, avoids the ones who fight back.</p>
-        <p class="quote">&ldquo;You're consistent, Rex. I'll give you that.&rdquo; <span class="act">calls</span></p>
-        <div class="traits"><span class="trait sly">predatory</span><span class="trait">adapts fast</span></div>
-      </div>
-
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Same hand, seven different answers</h2>
-    <p class="sub">
-      This is one real deal, shown to every character in turn. The cards do not
-      change &mdash; only who is holding them.
-    </p>
-
-    <div class="moment">
-      <div class="moment-bar">
-        <span>Turn &middot; four-handed &middot; Rex has bet every street</span>
-        <span class="cards">
-          <span class="pc r">K<span style="font-size:11px">♥</span></span>
-          <span class="pc">7♣</span>
-          <span class="pc r">2<span style="font-size:11px">♦</span></span>
-          <span class="pc">9♠</span>
-          <span class="pc r">K<span style="font-size:11px">♦</span></span>
-          <span class="pc r">Q<span style="font-size:11px">♥</span></span>
-        </span>
-      </div>
-      <div class="moment-body">
-        You are on the button with <b>top pair, good kicker</b>. Rex fires
-        <b>180</b> into a pot of <b>260</b>, for the third street in a row.
-        <b>What do you do?</b>
-      </div>
-    </div>
-
-    <div class="cast">
-      <div class="who">
-        <div class="who-top"><div class="av" style="background:#7fd1e8">A</div>
-          <div><div class="who-name">Alice</div><div class="who-tag">raises</div></div></div>
-        <p class="quote">&ldquo;Your sizing is telling a story.&rdquo;</p>
-        <p class="who-style">Calling 180 into 440 needs about 29%, and I have far more than that. Raise for value, charge the draws, keep the river simple.</p>
-      </div>
-      <div class="who">
-        <div class="who-top"><div class="av" style="background:#ef6355">R</div>
-          <div><div class="who-name">Rex</div><div class="who-tag">raises</div></div></div>
-        <p class="quote">&ldquo;Time to pay the toll, big shooter.&rdquo;</p>
-        <p class="who-style">His range is wide as a barn door here &mdash; worse kings, draws, and pure air. Taking control and making him decide for the rest of his stack.</p>
-      </div>
-      <div class="who">
-        <div class="who-top"><div class="av" style="background:#8b9bab">T</div>
-          <div><div class="who-name">Tom</div><div class="who-tag">calls, grudgingly</div></div></div>
-        <p class="quote">&ldquo;You're making it expensive to be patient, Rex.&rdquo;</p>
-        <p class="who-style">Not laying down top pair to someone who plays this fast. Calling &mdash; and not raising, because I do not raise without a real hand.</p>
-      </div>
-      <div class="who">
-        <div class="who-top"><div class="av" style="background:#b98cf0">Z</div>
-          <div><div class="who-name">Zoe</div><div class="who-tag">raises</div></div></div>
-        <p class="quote">&ldquo;Three streets, Rex? Let's see if you like a bigger number.&rdquo;</p>
-        <p class="who-style">Either he folds something that could have got there, or I find out exactly how much he likes his hand. Nobody reads me straight either way.</p>
-      </div>
-      <div class="who">
-        <div class="who-top"><div class="av" style="background:#4bd48a">B</div>
-          <div><div class="who-name">Bob</div><div class="who-tag">calls</div></div></div>
-        <p class="quote">&ldquo;Every street, Rex? Fine, one more card, I'm curious now.&rdquo;</p>
-        <p class="who-style">I hate folding and I want to see that river. If he has the king beat, so be it. 180 is nothing.</p>
-      </div>
-      <div class="who">
-        <div class="who-top"><div class="av" style="background:#e8b44a">M</div>
-          <div><div class="who-name">Max</div><div class="who-tag">calls</div></div></div>
-        <p class="quote">&ldquo;You're consistent, Rex. I'll give you that.&rdquo;</p>
-        <p class="who-style">Raising folds out his bluffs and only gets action from better. Letting him keep the lead and keeping his air in the hand is worth more.</p>
-      </div>
-    </div>
-
-    <div class="callout" style="margin-top:26px">
-      <b>Nobody said what they were holding.</b> They will lie to each other all
-      night &mdash; but they never give a hand away, because a table where the
-      cards get read out loud is not a poker table.
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>What it looks like</h2>
-    <p class="sub">The felt, the table talk, and the thinking &mdash; all in one window.</p>
-
-    <figure class="shot">
-      <img src="01-table.png" alt="A hand in progress: four board cards, a bet in front of a player, and a panel on the right listing each numbered action with the model's reasoning and what the player said out loud.">
-      <figcaption>
-        <b>You can read their minds, not just their bets.</b> Every action comes
-        with the thinking behind it — the range they put you on, the price they
-        worked out, whether they meant it. Turn it off if you would rather just
-        watch the cards.
-      </figcaption>
-    </figure>
-
-    <figure class="shot">
-      <img src="02-result.png" alt="The end of a hand: a card showing who won and the size of the pot, the final board, and each hand that was shown with its name.">
-      <figcaption>
-        <b>You always know how the hand ended.</b> The result stays up with a
-        countdown — longer when there is more to read — and you can skip it with
-        a click when you are ready for the next one.
-      </figcaption>
-    </figure>
-
-    <figure class="shot">
-      <img src="03-personas.png" alt="A settings screen listing seven player profiles with their tendencies, above a form for writing a new player with a name, a tagline, a personality description and a way of speaking.">
-      <figcaption>
-        <b>Write your own player.</b> Seven come with the game. Change any of
-        them, or build one from scratch: a name, a personality, and a way of
-        talking is all it takes.
-      </figcaption>
-    </figure>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Put your own model at the table</h2>
-    <p class="sub">
-      Any model that speaks the OpenAI API can take a seat &mdash; a hosted one,
-      a local one, whatever you already have. Point a seat at it, and it plays
-      with the character you gave it.
-    </p>
-    <div class="seats">
-      <div class="seatcard">
-        <div class="k">Endpoint</div>
-        <div class="v">Any OpenAI-compatible URL <span>&mdash; hosted or local</span></div>
-      </div>
-      <div class="seatcard">
-        <div class="k">Mix and match</div>
-        <div class="v">A different model per seat <span>&mdash; put two against each other</span></div>
-      </div>
-      <div class="seatcard">
-        <div class="k">Your key</div>
-        <div class="v">Stays on your machine <span>&mdash; never sent anywhere else</span></div>
-      </div>
-      <div class="seatcard">
-        <div class="k">No key?</div>
-        <div class="v">Seats play themselves <span>&mdash; the game always runs</span></div>
-      </div>
-    </div>
-    <div class="callout" style="margin-top:24px">
-      <b>A good way to compare models.</b> Give two of them the same seat, the
-      same character and the same cards, and see which one actually plays poker.
+      <div class="who"><div class="who-top"><div class="av" style="background:#7fd1e8" aria-hidden="true">A</div><div><div class="who-name">Alice</div><div class="who-tag">calculating</div></div></div><p>A disciplined, maths-first player. Thinks in ranges and pot odds, looks for value, and folds without ego.</p></div>
+      <div class="who"><div class="who-top"><div class="av" style="background:#ef6355" aria-hidden="true">R</div><div><div class="who-name">Rex</div><div class="who-tag">maniac</div></div></div><p>Aggressive and talkative. Looks for light raises, pressure and opportunities to keep everyone guessing.</p></div>
+      <div class="who"><div class="who-top"><div class="av" style="background:#8b9bab" aria-hidden="true">T</div><div><div class="who-name">Tom</div><div class="who-tag">rock</div></div></div><p>Patient and conservative. Prefers a strong range and a convincing reason to put a large stack in the middle.</p></div>
+      <div class="who"><div class="who-top"><div class="av" style="background:#b98cf0" aria-hidden="true">Z</div><div><div class="who-name">Zoe</div><div class="who-tag">trickster</div></div></div><p>Deceptive and hard to read. Mixes slow plays with bluffs and enjoys a line that unsettles the table.</p></div>
+      <div class="who"><div class="who-top"><div class="av" style="background:#4bd48a" aria-hidden="true">B</div><div><div class="who-name">Bob</div><div class="who-tag">calling station</div></div></div><p>Curious and reluctant to fold. Wants to see the next card and needs convincing that an opponent has it.</p></div>
+      <div class="who"><div class="who-top"><div class="av" style="background:#58a6ff" aria-hidden="true">S</div><div><div class="who-name">Sam</div><div class="who-tag">pro</div></div></div><p>A balanced strategic brief. Considers position, sizing, blind defence and whether an opponent's story fits.</p></div>
+      <div class="who"><div class="who-top"><div class="av" style="background:#e8b44a" aria-hidden="true">M</div><div><div class="who-name">Max</div><div class="who-tag">shark</div></div></div><p>Focused on observed weaknesses. Looks for ways to adjust against frequent callers, folders and aggressors.</p></div>
+      <div class="who custom"><h3>Your next opponent</h3><p>Invent a character with a name, a personality and a way of talking. Then find out what happens when it meets the rest of the table.</p></div>
+      <div class="who custom"><h3>Let them talk</h3><p>The jokes, taunts and complaints are part of the character. Their actual hands stay private.</p></div>
     </div>
   </div>
 </section>
 
 <section id="run">
   <div class="wrap">
-    <h2>Deal yourself in</h2>
-    <p class="sub">Needs Python 3.11 or newer. Nothing else to set up first.</p>
-    <pre><span class="c"># grab it and install</span>
+    <h2>Set up your local table</h2>
+    <p class="sub">Python 3.10 or newer. Connect an OpenAI-compatible endpoint, hosted or local, and bring a model to each AI seat.</p>
+    <div class="setup">
+      <pre aria-label="Installation and launch commands"><span class="c"># Clone the project</span>
 git clone https://github.com/jiale-wangOwO/LLM-Poker-Arena.git
 cd LLM-Poker-Arena
+
+<span class="c"># Install in your Python environment</span>
 pip install -r requirements.txt
 
-<span class="c"># watch a game straight away -- no key, no model, no setup</span>
-python main.py --demo
-
-<span class="c"># take a seat yourself</span>
-python main.py --me
-
-<span class="c"># the table in your browser</span>
+<span class="c"># Start the browser table</span>
 python -m pokerarena.web --port 8080
-<span class="c"># now open http://127.0.0.1:8080</span></pre>
-    <p class="sub" style="margin:26px 0 0">
-      Adding a model takes one form: open <b>Settings &rarr; Providers</b>, paste
-      a base URL, a model name and a key. Your key is saved on your own machine
-      and is never sent back to the browser.
-    </p>
+<span class="c"># Open http://127.0.0.1:8080</span></pre>
+      <ol class="instructions">
+        <li>Open <b>Settings → Providers</b>. Set the base URL, model name and API key for your hosted provider or local model server.</li>
+        <li>Test and save your provider. Add more if you want to mix models at the table.</li>
+        <li>Start a game, choose your characters and models, then deal the first hand.</li>
+        <li>Use the <a href="https://github.com/jiale-wangOwO/LLM-Poker-Arena#installation">installation guide</a> for virtual environment commands and the <a href="https://github.com/jiale-wangOwO/LLM-Poker-Arena#troubleshooting">troubleshooting guide</a> for endpoint issues.</li>
+      </ol>
+    </div>
+    <p class="note" style="margin-top:22px">The game calls your chosen provider using your own API key. Model calls and token use are visible; recovery moves are marked if a model response fails.</p>
+    <div class="cta" style="margin-top:28px; margin-bottom:0">
+      <a class="btn primary" href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">Install from GitHub <span aria-hidden="true">↗</span></a>
+      <a class="btn ghost" href="https://github.com/jiale-wangOwO/LLM-Poker-Arena#what-an-llm-player-knows">Read the context design</a>
+    </div>
   </div>
 </section>
+</main>
 
 <footer>
   <div class="wrap">
-    <p>
-      <a href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">github.com/jiale-wangOwO/LLM-Poker-Arena</a>
-      &nbsp;·&nbsp; Apache License 2.0
-    </p>
+    <p><a href="https://github.com/jiale-wangOwO/LLM-Poker-Arena">LLM-Poker-Arena on GitHub</a> &nbsp;·&nbsp; Apache License 2.0</p>
+    <p>Product tour updated <time datetime="2026-10-06">2026-10-06</time></p>
   </div>
 </footer>
-
 </body>
 </html>

@@ -252,9 +252,12 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             config = _config_from_payload(payload)
+            replacement = payload.get("replace_session")
+            if replacement is not None and not isinstance(replacement, str):
+                raise ValueError("replace_session must be a session id")
+            session = manager.create(config, replace_session=replacement)
         except ValueError as exc:
             return jsonify(error=str(exc)), 400
-        session = manager.create(config)
         return jsonify(session=session.snapshot()), 201
 
     @app.get("/api/game/<session_id>")
@@ -262,14 +265,29 @@ def create_app() -> Flask:
         session = manager.get(session_id)
         if session is None:
             return jsonify(error="unknown session"), 404
-        return jsonify(session=session.snapshot())
+        return snapshot_response(session)
 
     @app.get("/api/game")
     def get_latest_game():
         session = manager.latest()
         if session is None:
             return jsonify(error="no game in progress"), 404
-        return jsonify(session=session.snapshot())
+        return snapshot_response(session)
+
+    def snapshot_response(session):
+        cursors = {}
+        for key, label in (("replay_after", "action"), ("history_after", "hand")):
+            value = request.args.get(key)
+            if value is None:
+                continue
+            try:
+                value = int(value)
+                if value < 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return jsonify(error=f"{key} must be a non-negative {label} number"), 400
+            cursors[key] = value
+        return jsonify(session=session.snapshot(**cursors))
 
     @app.post("/api/game/<session_id>/action")
     def post_action(session_id: str):
@@ -279,7 +297,7 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         raw = payload.get("action", "")
         try:
-            result = session.submit_action(raw)
+            result = session.submit_action(raw, turn_token=payload.get("turn_token"))
         except IllegalAction as exc:
             return jsonify(error=str(exc)), 409
         return jsonify(result=result)
@@ -318,15 +336,19 @@ def create_app() -> Flask:
             paused = session.paused
         elif action == "skip-hold":
             # "Deal the next hand now" -- for a spectator who has seen enough.
-            with session.lock:
-                session.skip_hold = True
+            skipped = session.skip_result(payload.get("hand"))
+            paused = session.paused
+        elif action == "stop":
+            session.stop()
             paused = session.paused
         else:
             return jsonify(
-                error="action must be pause, resume, step, god-mode or skip-hold"
+                error="action must be pause, resume, step, god-mode, skip-hold or stop"
             ), 400
         return jsonify(
-            paused=paused, finished=session.finished, god_mode=god_mode
+            paused=paused, finished=session.finished, god_mode=god_mode,
+            stopped=session._stop_requested.is_set(),
+            **({"skipped": skipped} if action == "skip-hold" else {}),
         )
 
     return app

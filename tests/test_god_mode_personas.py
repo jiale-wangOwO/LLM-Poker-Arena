@@ -52,6 +52,7 @@ def start(client, *, reveal_all=False, hands=400, speed=0.0, seed=7):
             "max_hands": hands,
             "seed": seed,
             "reveal_all": reveal_all,
+            "hand_result_seconds": 0,
         },
     )
     assert response.status_code == 201, response.get_json()

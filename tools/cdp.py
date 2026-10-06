@@ -125,7 +125,8 @@ class Browser:
             awaitPromise=await_promise,
         )
         if "exceptionDetails" in result:
-            raise RuntimeError(result["exceptionDetails"].get("text", "JS error"))
+            detail = result["exceptionDetails"]
+            raise RuntimeError(detail.get("exception", {}).get("description") or detail.get("text", "JS error"))
         return result.get("result", {}).get("value")
 
     def screenshot(self, path: Path) -> None:

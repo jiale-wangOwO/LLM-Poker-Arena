@@ -15,6 +15,7 @@ through :meth:`pokerarena.engine.Table.legal_actions` before it is applied.
 from __future__ import annotations
 
 import queue
+from copy import deepcopy
 import threading
 import time
 import uuid
@@ -22,20 +23,21 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from .ai import Action
-from .arena import Arena, AISpec, heuristic_transports
+from .ai import Action, calling_price
+from .arena import Arena, ArenaStopped, AISpec, heuristic_transports
 from .config import ArenaConfig
 from .engine import (
     ACTION_TAKEN,
+    ANTES_POSTED,
     BLINDS_POSTED,
     BOARD_DEALT,
     HAND_END,
     HAND_START,
+    HOLE_CARDS_DEALT,
     MESSAGE,
     PLAYER_ELIMINATED,
     POT_AWARDED,
     SHOWDOWN,
-    Street,
     STREET_START,
     ActionType,
     Event,
@@ -43,7 +45,7 @@ from .engine import (
     Player,
     Table,
 )
-from .personas import PERSONAS, default_lineup, get_persona, persona_store
+from .personas import persona_store
 from .providers import STORE as _PROVIDER_STORE
 
 #: Indirection so tests can point the web layer at a scratch file.
@@ -67,6 +69,9 @@ if TYPE_CHECKING:  # pragma: no cover
 
 MAX_EVENT_LOG = 400
 MAX_THOUGHTS = 200
+MAX_HISTORY_HANDS = 200
+MAX_HISTORY_ACTIONS = 4000
+"""Retain complete recent hands, independently of the short event/replay logs."""
 
 
 MAX_SEATS = 6
@@ -130,14 +135,11 @@ class SessionConfig:
     models are told, so turning it on does not let anyone play better.
     """
 
-    hand_result_seconds: float = 4.5
-    """Base time the finished hand stays on screen before the next is dealt.
+    hand_result_seconds: float = 20.0
+    """Fixed time every finished hand stays visible, unless explicitly skipped.
 
-    Scaled by what there is to read (see ``PlaybackControl.between_hands``): a
-    three-way showdown on the river gets roughly 1.6x this, a won-without-showdown
-    hand about a second.  It is only the *overlay* that is timed -- the previous
-    hand also stays available in the corner until the next one ends, so a longer
-    pause would just be dead time.  Set to 0 to deal straight on.
+    Fold-outs, showdowns, side pots and the final hand use the same duration.
+    Set to 0 to disable presentation pacing for headless/test sessions.
     """
 
     def seated(self) -> list[SeatSpec]:
@@ -160,6 +162,14 @@ class PlaybackControl:
 
     def __init__(self, session: "GameSession"):
         self.session = session
+
+    def should_stop(self) -> bool:
+        """The arena checks this before a call and before applying its reply."""
+        return self.session._stop_requested.is_set()
+
+    def action_guard(self):
+        """Keep accepting Stop and applying a move as one atomic boundary."""
+        return self.session.lock
 
     # -- pacing ------------------------------------------------------------
     def wait_if_paused(self) -> None:
@@ -184,57 +194,36 @@ class PlaybackControl:
         showdown, the board and the payouts available.  Pausing here is what
         lets a spectator see who won and what they held.
 
-        The length is scaled by how much there is to read rather than being a
-        flat number of seconds: a four-way showdown that went to the river needs
-        far longer than a hand where everyone folded pre-flop, and a fixed pause
-        is either too short to read the first or a pointless wait for the second.
-        The wait is always interruptible -- the browser can skip it, and the UI
-        shows a countdown so the pause is never a mystery.
+        Every hand uses the configured duration, including the final hand.
+        The wait is interruptible by Skip or Stop. Pausing decisions does not
+        extend the countdown, and skipping does not resume a paused game.
         """
         session = self.session
-        base = session.config.hand_result_seconds
-        if base <= 0:
-            return
-
-        weight = self._result_weight(table)
-        hold = base * weight
-        if weight <= 0.5:
-            # Nothing was shown and there is no board: a brief acknowledgement,
-            # never a full pause.  A flat 2s wait for "everyone folded" is the
-            # kind of pause that makes a table feel broken.
-            hold = min(hold, 1.1)
-        session.hold_until = time.time() + hold
-        session.hold_total = hold
-        deadline = session.hold_until
-        while time.time() < deadline:
+        hold = session.config.hand_result_seconds
+        with session.lock:
+            session.skip_hold = False
+            if hold <= 0 or session.finished or self.should_stop():
+                return
+            session.hold_until = time.time() + hold
+            session._hold_deadline = time.monotonic() + hold
+            session.hold_total = hold
+            session.hold_hand = table.hand_number
+        try:
+            while True:
+                with session.lock:
+                    if session.finished or self.should_stop() or session.skip_hold:
+                        break
+                    remaining = session._hold_deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                time.sleep(min(0.03, remaining))
+        finally:
             with session.lock:
-                if session.finished or session.skip_hold:
-                    session.skip_hold = False
-                    break
-            time.sleep(0.03)
-        session.hold_until = 0.0
-        session.hold_total = 0.0
-
-    @staticmethod
-    def _result_weight(table: Table) -> float:
-        """How long this result deserves, as a multiple of the base hold.
-
-        Driven by what actually has to be read: the number of hands shown, how
-        many board cards there are, and whether the pot was contested.  A
-        pre-flop fold-out scores near zero and only gets a brief acknowledgement.
-        """
-        showdown = table.showdown_results or []
-        revealed = len({entry.get("seat") for entry in showdown if isinstance(entry, dict)})
-        if not revealed:
-            # Nobody showed: either everyone folded, or one player took it down.
-            return 0.35
-
-        weight = 0.55
-        weight += 0.18 * revealed          # one line to read per revealed hand
-        weight += 0.06 * len(table.board)  # a full board is more to take in
-        if len(table.pots_snapshot) > 1:
-            weight += 0.15                 # a split pot needs explaining
-        return min(weight, 1.9)
+                session.skip_hold = False
+                session.hold_until = 0.0
+                session._hold_deadline = 0.0
+                session.hold_total = 0.0
+                session.hold_hand = None
 
     # -- numbering ---------------------------------------------------------
     def record_action(self, table: Table, seat: int, action: Action) -> None:
@@ -242,31 +231,40 @@ class PlaybackControl:
         with session.lock:
             session.seq += 1
             player = table.players[seat]
+            # Applying an action may immediately deal another street or pay
+            # the pot. The betting log retains the actual decision street.
+            betting = table.hand_log[-1] if table.hand_log else {}
             session.actions.append(
                 {
                     "seq": session.seq,
                     "hand": table.hand_number,
-                    "street": table.street.value,
-                    "street_label": table.street.label,
+                    "street": betting.get("street", table.street.value),
+                    "street_label": betting.get("street_label", table.street.label),
                     "seat": seat,
                     "name": player.name,
                     "action": action.type.value,
                     "action_label": action.describe(),
                     "amount": action.amount,
-                    "pot": table.pot_total,
+                    "pot": betting.get("pot", table.pot_total),
                     "source": action.source,
                     "speech": action.speech,
                     # Inline reasoning for the action log.
                     "thought": " ".join((action.thought or "").split())[:400],
+                    "replay": session._table_frame(table),
                 }
             )
             del session.actions[:-MAX_ACTIONS]
+            if len(session.actions) > MAX_REPLAY_FRAMES:
+                session.actions[-MAX_REPLAY_FRAMES - 1].pop("replay", None)
             # Everything the engine emits from here belongs to this action.
             session._action_index = len(session.actions) - 1
 
 
 MAX_ACTIONS = 4000
 """Upper bound on the replay log (a full game is a few hundred actions)."""
+
+MAX_REPLAY_FRAMES = 400
+"""Detailed recent frames; older compact action rows remain readable."""
 
 MAX_DECISIONS = 6000
 """Upper bound on the full decision log."""
@@ -359,9 +357,13 @@ class GameSession:
 
         self.event_log: list[dict] = []
         self.thoughts: list[dict] = []
-        self.pending_action: queue.Queue[Action] = queue.Queue(maxsize=4)
+        self.pending_action: queue.Queue[tuple[str, Action]] = queue.Queue(maxsize=1)
+        self._stop_requested = threading.Event()
         self.awaiting_human = False
+        self._human_turn = 0
+        self._human_token: str | None = None
         self.winner: str | None = None
+        self.completion_reason: str | None = None
         self.error: str | None = None
         self.finished = False
         self.started_at: datetime | None = None
@@ -375,6 +377,10 @@ class GameSession:
         """Wall-clock time until which the finished hand is held on screen."""
         self.hold_total = 0.0
         """Length of the current hold, so the UI can draw a countdown."""
+        self._hold_deadline = 0.0
+        """Monotonic deadline; system-clock adjustments cannot extend a hold."""
+        self.hold_hand: int | None = None
+        """Hand number the active result countdown belongs to."""
         self.skip_hold = False
         """Set by the UI to jump straight to the next hand."""
         self._god_mode = bool(config.reveal_all)
@@ -393,6 +399,15 @@ class GameSession:
 
         self._action_index = -1
         """Index into :attr:`actions` that the game has currently reached."""
+        self._hands: list[dict] = []
+        """Public hand narratives: forced bets, streets, decisions and results.
+
+        Capturing engine events keeps the narrative intact after the engine
+        resets its current hand or the short live event feed rolls over. Hole
+        cards and private reasoning are deliberately never stored here.
+        """
+        self._history_truncated = False
+        self._live_frame = self._table_frame(self.arena.table)
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -404,25 +419,67 @@ class GameSession:
 
     def _run(self) -> None:
         try:
-            self.winner = self.arena.play_game()
+            winner = self.arena.play_game()
+            with self.lock:
+                if not self._stop_requested.is_set():
+                    self.winner = winner
+                    self.completion_reason = "last_player" if self.arena.table.is_game_over() else "hand_cap"
+        except ArenaStopped:
+            pass
         except Exception as exc:  # pragma: no cover - defensive
             self.error = f"{type(exc).__name__}: {exc}"
+            self.completion_reason = "error"
         finally:
             with self.lock:
                 self.finished = True
                 self.awaiting_human = False
+                self._human_token = None
+
+    def stop(self) -> bool:
+        """Stop at the next decision boundary, discarding an in-flight reply.
+
+        Network requests already sent may finish and count toward provider
+        usage. The arena never applies them or starts another model call.
+        """
+        with self.lock:
+            if self.finished and not self._stop_requested.is_set():
+                return False
+            self._stop_requested.set()
+            self.finished = True
+            self.awaiting_human = False
+            self._human_token = None
+            self.paused = False
+            self.step_budget = 0
+            self.skip_hold = False
+            self.hold_until = 0.0
+            self._hold_deadline = 0.0
+            self.hold_total = 0.0
+            self.hold_hand = None
+            self.winner = None
+            self.completion_reason = "stopped"
+            return True
 
     # -- human input -------------------------------------------------------
     def _human_decider(self, table: Table, seat: int) -> Action:
         """Block the game thread until the browser submits a legal action."""
         with self.lock:
+            if self._stop_requested.is_set():
+                from .ai import safe_fallback
+                return safe_fallback(table, seat, table.legal_actions(seat))
+            # Browser input belongs to a single decision and must never carry
+            # into a later betting round.
+            while not self.pending_action.empty():
+                self.pending_action.get_nowait()
+            self._human_turn += 1
+            self._human_token = self._turn_token(table, seat)
             self.awaiting_human = True
+            self._live_frame = self._table_frame(table)
         # No hard deadline while paused: a spectator may study the spot as long
         # as they like, and the session's own watchdog is the pause control.
         deadline = time.time() + 300
         while True:
             try:
-                action = self.pending_action.get(timeout=0.4)
+                token, action = self.pending_action.get(timeout=0.4)
             except queue.Empty:
                 with self.lock:
                     paused = self.paused
@@ -433,16 +490,23 @@ class GameSession:
                     break
                 continue
             with self.lock:
+                if token != self._human_token:
+                    continue
                 self.awaiting_human = False
+                self._human_token = None
             return action
         with self.lock:
             self.awaiting_human = False
+            self._human_token = None
         # Nobody answered: keep the game alive with a legal non-committal move.
         from .ai import safe_fallback
 
         return safe_fallback(table, seat, table.legal_actions(seat))
 
-    def submit_action(self, raw: str) -> dict:
+    def _turn_token(self, table: Table, seat: int) -> str:
+        return f"{self.id}:{table.hand_number}:{table.street.value}:{seat}:{self.seq}:{self._human_turn}"
+
+    def submit_action(self, raw: str, turn_token: str | None = None) -> dict:
         """Validate and queue a human action.  Returns a status dict.
 
         The action is normalised through the engine *before* it is queued, so a
@@ -453,24 +517,27 @@ class GameSession:
         table = self.arena.table
         seat = self.arena.human_seat
         with self.lock:
+            current_token = self._human_token or self._turn_token(table, seat)
+            if turn_token is not None and turn_token != current_token:
+                raise IllegalAction("This turn has changed; refresh the table before acting")
             if not self.awaiting_human:
                 raise IllegalAction("It is not your turn")
             if table.actor != seat:
                 raise IllegalAction("It is not your turn")
             legal = table.legal_actions(seat)
-
-        # Raises IllegalAction on anything the rules forbid.  This is the same
-        # gate the AI path uses.
-        validated = table.normalize_action(seat, self._parse(raw, legal))
-
-        try:
-            self.pending_action.put_nowait(validated)
-        except queue.Full:  # pragma: no cover - defensive
-            raise IllegalAction("Another action is already queued")
-        return {"queued": True, "action": validated.describe()}
+            validated = table.normalize_action(seat, self._parse(raw, legal))
+            try:
+                self.pending_action.put_nowait((current_token, validated))
+            except queue.Full:
+                raise IllegalAction("Another action is already queued") from None
+            # Consume the turn under the same lock used to validate and queue.
+            self.awaiting_human = False
+            return {"queued": True, "action": validated.describe(), "turn_token": current_token}
 
     @staticmethod
     def _parse(raw: str, legal: "LegalActions") -> Action:
+        if not isinstance(raw, str):
+            raise IllegalAction("action must be a string")
         text = (raw or "").strip().lower()
         if text in {"f", "fold"}:
             return Action(ActionType.FOLD, source="human")
@@ -497,6 +564,23 @@ class GameSession:
                 self.step_budget = 0
             return self.paused
 
+    def skip_result(self, hand: int | None = None) -> bool:
+        """Skip only the currently displayed result, never a later hand.
+
+        A hand number binds delayed browser requests to their result. Calls
+        while playing, after expiry, or after Stop leave no sticky skip flag.
+        """
+        with self.lock:
+            if (self.finished or self._hold_deadline <= time.monotonic()
+                    or self.hold_total <= 0 or (hand is not None and hand != self.hold_hand)):
+                return False
+            self.skip_hold = True
+            self.hold_until = 0.0
+            self._hold_deadline = 0.0
+            self.hold_total = 0.0
+            self.hold_hand = None
+            return True
+
     def god_mode(self) -> bool:
         """Whether the browser may see everyone's cards and reasoning."""
         with self.lock:
@@ -514,16 +598,19 @@ class GameSession:
         One rule, used by both the table snapshot and the player detail panel so
         the two can never disagree:
 
-        * god mode shows everything, and a finished hand is public anyway;
+        * god mode shows everything;
+        * showdown exposes the hands actually tabled, never a folded hand;
         * otherwise a *seated human* sees their own hand and nothing else;
         * a pure spectator (no human seat at all) sees nothing, because there is
           no hand that is "theirs".  Treating every non-AI seat as "yours" is how
           an all-AI table ended up broadcasting every hand in the clear.
         """
-        if self.god_mode() or hand_over or self.finished:
+        if self.god_mode():
             return True
         human = self.arena.human_seat
-        return human is not None and seat == human
+        return (human is not None and seat == human) or any(
+            entry.get("seat") == seat for entry in self.arena.table.showdown_results
+        )
 
     def step(self, count: int = 1) -> bool:
         """While paused, allow ``count`` more decisions to run."""
@@ -550,7 +637,7 @@ class GameSession:
         persona = None
         if player.is_ai:
             try:
-                persona = get_persona(player.persona).public()
+                persona = personas().get(player.persona).public()
             except KeyError:
                 persona = None
 
@@ -564,24 +651,21 @@ class GameSession:
         # Reasoning follows the same switch as cards: it is private until god
         # mode (or the end of the game) makes it readable.
         reveal = self.reveals_cards(seat, hand_over=table.is_hand_over)
-        reasoning_visible = reveal or (self.arena.human_seat is not None
-                                       and seat == self.arena.human_seat)
+        reasoning_visible = self.god_mode() or (self.arena.human_seat is not None
+                                              and seat == self.arena.human_seat)
 
         with self.lock:
             # Every decision this seat has made, newest last, across the game.
             # The ``seq`` is looked up from the decision log so the panel can
             # show the same number as the action rail.
-            history = [
-                {**entry, "seq": self._seq_for(entry)}
-                for entry in self.arena.transcript
-                if entry.get("seat") == seat
-            ]
+            history = [dict(entry) for entry in self.decisions if entry.get("seat") == seat]
             # Stats over the whole game for this seat.
             stats = self._seat_stats(seat)
             conversation_size = len(player.conversation)
             memory_turns = getattr(decider, "memory_turns", 0)
             model = model_label(player, decider)
-            messages_sent = len(decider._sent_messages(player)) if player.opening_prompt else 1
+            messages_sent = (len(decider._sent_messages(player))
+                             if player.opening_prompt and decider is not None else 1)
             turns_recorded = conversation_size // 2
             hand_history = [
                 entry
@@ -609,7 +693,7 @@ class GameSession:
                 else None
             ),
             "reasoning_visible": reasoning_visible,
-            "hand_strength": strength_note,
+            "hand_strength": strength_note if reveal else None,
             "persona_profile": (
                 {
                     "style": persona["style"],
@@ -671,6 +755,8 @@ class GameSession:
             # actions (they are public) but drop the reasoning behind them.
             for entry in detail["history"]:
                 entry["thought"] = ""
+                entry.pop("reasoning", None)
+                entry.pop("raw_response", None)
             detail["thoughts"] = []
         return detail
 
@@ -724,7 +810,7 @@ class GameSession:
         """Keep a durable, per-hand-proof record of every action."""
         player = self.arena.table.players[entry["seat"]]
         record = {
-            "seq": len(self.actions),
+            "seq": self.seq,
             "seat": entry["seat"],
             "name": entry.get("name"),
             "hand": self.arena.table.hand_number,
@@ -737,6 +823,10 @@ class GameSession:
             "thought": entry.get("thought", ""),
             "source": entry.get("source", ""),
         }
+        if self.actions:
+            record["street"] = self.actions[-1]["street"]
+            record["street_label"] = self.actions[-1]["street_label"]
+            record["action"] = self.actions[-1]["action_label"]
         # Prefer the engine's richer record for this decision when available.
         if player.history:
             latest = player.history[-1]
@@ -784,6 +874,7 @@ class GameSession:
 
     def _on_event(self, table: Table, events: list[Event]) -> None:
         with self.lock:
+            self._record_hand_events(table, events)
             for event in events:
                 entry = self._serialise_event(event)
                 if entry is None:
@@ -794,6 +885,8 @@ class GameSession:
                 # Tag every entry with the action it belongs to, so the replay
                 # scrubber can reconstruct the table at any numbered action.
                 entry["_ai"] = self._action_index
+                entry["hand_number"] = table.hand_number
+                entry["seq"] = self.seq
                 self.event_log.append(entry)
                 del self.event_log[:-MAX_EVENT_LOG]
                 if thought:
@@ -802,7 +895,7 @@ class GameSession:
                             "seat": entry.get("seat"),
                             "name": entry.get("name"),
                             "hand": table.hand_number,
-                            "street": table.street.value,
+                            "street": self.actions[-1]["street"] if self.actions else table.street.value,
                             "action": entry.get("action"),
                             "speech": entry.get("speech", ""),
                             "thought": thought,
@@ -811,6 +904,17 @@ class GameSession:
                         }
                     )
                     del self.thoughts[:-MAX_THOUGHTS]
+                if event.kind == BLINDS_POSTED:
+                    self._blind_hand = table.hand_number
+                    self._blind_seats = (event.data["small"]["seat"], event.data["big"]["seat"])
+            self._live_frame = self._table_frame(table)
+            if any(event.kind == ACTION_TAKEN for event in events) and self.actions:
+                # Include the action's complete public narration (new street,
+                # payout, showdown) without touching older captured frames.
+                frame = self.actions[-1].get("replay")
+                if frame is not None:
+                    frame["events"] = deepcopy(self._live_frame["events"])
+                    frame["hand_result"] = deepcopy(self._live_frame["hand_result"])
         # Slow the game down so a browser can follow it.
         if self.config.speed_seconds and not table.is_hand_over:
             time.sleep(self.config.speed_seconds)
@@ -835,6 +939,8 @@ class GameSession:
                 "action": data["action"],
                 "amount": data["amount"],
                 "pot": data["pot"],
+                "chips": data["chips"],
+                "street_bet": data["street_bet"],
                 "speech": data.get("speech", ""),
                 "source": data.get("source", ""),
                 "full_raise": data.get("full_raise", False),
@@ -849,8 +955,12 @@ class GameSession:
                 "button": data["button"],
                 "button_name": data["button_name"],
             }
+        if kind == HOLE_CARDS_DEALT:
+            return {"kind": kind, "players": data["players"]}
         if kind == BLINDS_POSTED:
             return {"kind": kind, "small": data["small"], "big": data["big"]}
+        if kind == ANTES_POSTED:
+            return {"kind": kind, "ante": data["ante"], "paid": data["paid"]}
         if kind == STREET_START:
             return {
                 "kind": kind,
@@ -882,20 +992,132 @@ class GameSession:
             return {"kind": kind, "text": data.get("text", "")}
         return {"kind": kind, "data": {k: v for k, v in data.items() if k != "thought"}}
 
-    # -- snapshot ----------------------------------------------------------
-    def snapshot(self) -> dict:
-        table = self.arena.table
-        with self.lock:
-            awaiting = self.awaiting_human
-            finished = self.finished
-            winner = self.winner
-            error = self.error
-            paused = self.paused
-            events = list(self.event_log[-900:])
-            thoughts = list(self.thoughts[-MAX_THOUGHTS:])
-            actions = list(self.actions[-MAX_ACTIONS:])
+    # -- durable public hand history ---------------------------------------
+    def _record_hand_events(self, table: Table, events: list[Event]) -> None:
+        """Capture a complete public narrative at the engine publication boundary.
 
-        legal: dict | None = None
+        A single publication can include the deal, all forced bets and even a
+        complete all-in runout. Recover starting stacks from contributions and
+        payouts, so those hands remain accurate without a voluntary decision.
+        """
+        for event in events:
+            data = event.data
+            if event.kind == HAND_START:
+                paid_out: dict[int, int] = {}
+                for award in events:
+                    if award.kind == POT_AWARDED:
+                        seat = award.data["seat"]
+                        paid_out[seat] = paid_out.get(seat, 0) + award.data["amount"]
+                participants = [player for player in table.players if player.hole_cards]
+                order = sorted((player.seat for player in participants),
+                               key=lambda seat: (seat - data["button"]) % len(table.players))
+                labels = {2: ["BTN / SB", "BB"], 3: ["BTN", "SB", "BB"],
+                          4: ["BTN", "SB", "BB", "CO"],
+                          5: ["BTN", "SB", "BB", "UTG", "CO"],
+                          6: ["BTN", "SB", "BB", "UTG", "HJ", "CO"]}
+                positions = dict(zip(order, labels.get(len(order), [])))
+                self._hands.append({
+                    "hand_number": data["hand_number"], "status": "in_progress",
+                    "button": data["button"], "button_name": data["button_name"],
+                    "small_blind": data.get("small_blind", table.small_blind),
+                    "big_blind": data.get("big_blind", table.big_blind),
+                    "ante": data.get("ante", table.ante),
+                    "blind_level": data.get("blind_level", table.blind_level),
+                    "players": [
+                        {"seat": player.seat, "name": player.name,
+                         "position": positions.get(player.seat, ""),
+                         "starting_chips": player.chips + player.hand_contribution
+                                           - paid_out.get(player.seat, 0)}
+                        for player in participants
+                    ],
+                    "entries": [], "result": None, "truncated": False,
+                    "_payouts": [],
+                })
+            if not self._hands or self._hands[-1]["hand_number"] != table.hand_number:
+                continue
+            hand = self._hands[-1]
+            entries = hand["entries"]
+            if event.kind == STREET_START:
+                entries.append({"kind": "street", "street": data["street"],
+                                "label": data["label"], "board": list(data["board"]),
+                                "pot": data["pot"]})
+            elif event.kind == ANTES_POSTED:
+                starting = {player["seat"]: player["starting_chips"] for player in hand["players"]}
+                for seat, amount in data["paid"].items():
+                    entries.append({"kind": "ante", "seat": seat,
+                                    "name": table.players[seat].name,
+                                    "amount": amount, "nominal_amount": data["ante"],
+                                    "street": "preflop", "all_in": amount == starting.get(seat)})
+            elif event.kind == BLINDS_POSTED:
+                starting = {player["seat"]: player["starting_chips"] for player in hand["players"]}
+                ante_paid = {entry["seat"]: entry["amount"] for entry in entries if entry["kind"] == "ante"}
+                for role in ("small", "big"):
+                    blind = data[role]
+                    entries.append({"kind": "blind", "role": role,
+                                    "seat": blind["seat"], "name": blind["name"],
+                                    "amount": blind["amount"], "nominal_amount": hand[f"{role}_blind"],
+                                    "street": "preflop",
+                                    "all_in": blind["amount"] + ante_paid.get(blind["seat"], 0)
+                                              == starting.get(blind["seat"])})
+            elif event.kind == ACTION_TAKEN:
+                # record_action precedes event publication, preserving its
+                # original street even if applying it dealt the next board.
+                action = self.actions[-1] if self.actions and self.actions[-1]["hand"] == table.hand_number else None
+                entries.append({"kind": "action", "seq": action["seq"] if action else self.seq,
+                                "seat": data["seat"], "name": data["name"],
+                                "action": data["action"],
+                                "action_label": action["action_label"] if action else data["action"],
+                                "amount": data["amount"], "pot": data["pot"],
+                                "speech": data.get("speech", ""), "source": data.get("source", ""),
+                                "street": action["street"] if action else table.street.value,
+                                "street_label": action["street_label"] if action else table.street.label})
+            elif event.kind == POT_AWARDED:
+                hand["_payouts"].append(dict(data))
+        if self._hands and self._hands[-1]["hand_number"] == table.hand_number and table.is_hand_over:
+            hand = self._hands[-1]
+            hand["status"] = "completed"
+            payouts = hand["_payouts"]
+            hand["result"] = self._hand_result({
+                "hand": table.hand_number, "board": [card.code for card in table.board],
+                "showdown": table.showdown_results, "payouts": payouts, "pots": table.pots_snapshot,
+                "pot": sum(pot.get("amount", 0) for pot in table.pots_snapshot),
+                "winners": list(dict.fromkeys(payout["name"] for payout in payouts
+                                               if payout.get("reason") != "uncalled_bet_returned")),
+                "deltas": {player["seat"]: table.players[player["seat"]].chips - player["starting_chips"]
+                           for player in hand["players"]},
+            })
+        self._trim_hand_history()
+
+    def _trim_hand_history(self) -> None:
+        """Evict whole oldest hands, rather than silently dropping their ending."""
+        action_count = sum(entry["kind"] == "action" for hand in self._hands for entry in hand["entries"])
+        while len(self._hands) > 1 and (len(self._hands) > MAX_HISTORY_HANDS or action_count > MAX_HISTORY_ACTIONS):
+            removed = self._hands.pop(0)
+            action_count -= sum(entry["kind"] == "action" for entry in removed["entries"])
+            self._history_truncated = True
+        # The engine normally caps one hand below the history action budget.
+        # Keep an explicit partial flag if a custom engine exceeds that limit.
+        if self._hands and action_count > MAX_HISTORY_ACTIONS:
+            hand = self._hands[0]
+            drop = action_count - MAX_HISTORY_ACTIONS
+            kept = []
+            for entry in hand["entries"]:
+                if entry["kind"] == "action" and drop:
+                    drop -= 1
+                else:
+                    kept.append(entry)
+            hand["entries"] = kept
+            hand["truncated"] = True
+            self._history_truncated = True
+
+    def _public_hand_history(self, *, after: int | None = None) -> list[dict]:
+        return [deepcopy({key: value for key, value in hand.items() if not key.startswith("_")})
+                for hand in self._hands if after is None or hand["hand_number"] > after]
+
+    # -- snapshot ----------------------------------------------------------
+    def _table_frame(self, table: Table) -> dict:
+        """Capture table values, never references that another hand can mutate."""
+        legal = None
         if (
             self.arena.human_seat is not None
             and table.actor == self.arena.human_seat
@@ -903,20 +1125,25 @@ class GameSession:
         ):
             try:
                 legal = table.legal_actions(self.arena.human_seat).to_dict()
+                legal.update(calling_price(table, self.arena.human_seat))
             except IllegalAction:  # pragma: no cover - race guard
                 legal = None
 
+        try:
+            small, big = (self._blind_seats if getattr(self, "_blind_hand", None) == table.hand_number
+                          else table.blind_seats())
+        except (RuntimeError, ValueError):
+            small, big = None, None
+        participants = [p.seat for p in table.players if p.seated and
+                        (p.hole_cards or p.status.value != "sitting_out")]
+        order = sorted(participants, key=lambda seat: (seat - table.button) % len(table.players))
+        labels = ({2: ["BTN / SB", "BB"], 3: ["BTN", "SB", "BB"],
+                   4: ["BTN", "SB", "BB", "CO"],
+                   5: ["BTN", "SB", "BB", "UTG", "CO"],
+                   6: ["BTN", "SB", "BB", "UTG", "HJ", "CO"]}.get(len(order), []))
+        positions = dict(zip(order, labels))
         players = []
-        # God mode: a spectator sees every hole card.  Display only -- the
-        # prompts sent to the models never contain another seat's cards, so the
-        # players still play honestly either way.
-        god_mode = self.god_mode()
-        reveal_all = god_mode or table.is_hand_over or finished
         for player in table.players:
-            reveal = reveal_all or (
-                self.arena.human_seat is not None
-                and player.seat == self.arena.human_seat
-            )
             decider = self.arena.deciders.get(player.seat)
             players.append(
                 {
@@ -926,38 +1153,43 @@ class GameSession:
                     "status": player.status.value,
                     "seated": player.seated,
                     "street_bet": player.street_bet,
+                    "hand_contribution": player.hand_contribution,
+                    "in_hand": player.in_hand,
+                    "can_act": player.is_active,
+                    "is_all_in": player.is_all_in,
+                    "position": positions.get(player.seat, ""),
                     "is_ai": player.is_ai,
                     "persona": player.persona,
                     "persona_name": _persona_name(player),
                     "model": model_label(player, decider),
                     "provider": player.model,
-                    # Hidden unless god mode says otherwise (or the hand is over,
-                    # which makes every card public anyway).
-                    "hole_cards": (
-                        [c.code for c in player.hole_cards]
-                        if (reveal and player.seated and player.hole_cards)
-                        else None
-                    ),
+                    # The private capture is projected at the API boundary.
+                    "hole_cards": [c.code for c in player.hole_cards] or None,
                     "last_action": (
                         player.last_action.describe() if player.last_action else None
                     ),
                 }
             )
 
-        try:
-            small, big = table.blind_seats()
-        except Exception:  # pragma: no cover - defensive
-            small, big = None, None
-
-        # The result of the hand that just finished, so the browser can show it
-        # during the hold instead of jumping straight to a fresh table.
-        with self.lock:
-            last_hand = self.arena.hand_history[-1] if self.arena.hand_history else None
-            remaining = max(0.0, self.hold_until - time.time())
-            holding = remaining > 0
-            hold_total = self.hold_total
-
-        return {
+        last_hand = self.arena.hand_history[-1] if self.arena.hand_history else None
+        current_result = None
+        if table.is_hand_over and table.hand_number:
+            payouts = [event.data for event in table.events if event.kind == POT_AWARDED]
+            current_result = self._hand_result({
+                "hand": table.hand_number, "board": [c.code for c in table.board],
+                "showdown": table.showdown_results,
+                "pot": sum(pot.get("amount", 0) for pot in table.pots_snapshot),
+                "payouts": payouts, "pots": table.pots_snapshot,
+                "winners": list(dict.fromkeys(payout.get("name") for payout in payouts
+                                               if payout.get("reason") != "uncalled_bet_returned")),
+            })
+            if last_hand and last_hand.get("hand") == table.hand_number:
+                current_result = self._hand_result(last_hand)
+            elif not payouts and getattr(self, "_live_frame", {}).get("hand_number") == table.hand_number:
+                current_result = deepcopy(self._live_frame.get("hand_result") or current_result)
+            if self._hands and self._hands[-1]["hand_number"] == table.hand_number and self._hands[-1]["result"]:
+                current_result = deepcopy(self._hands[-1]["result"])
+        frame = {
             "session": self.id,
             "hand_number": table.hand_number,
             "street": table.street.value,
@@ -974,32 +1206,104 @@ class GameSession:
             "blind_level": table.blind_level,
             "actor": table.actor,
             "players": players,
-            "awaiting_human": awaiting,
             "human_seat": self.arena.human_seat,
             "legal": legal,
-            "events": events,
-            # Reasoning is part of god mode: with it off, the action rail shows
-            # what happened but not why.
-            "thoughts": thoughts if god_mode else [],
-            "actions": actions if god_mode else [
-                {**action, "thought": ""} for action in actions
-            ],
-            "paused": paused,
-            "finished": finished,
-            "winner": winner,
-            "error": error,
+            "events": [entry for entry in self.event_log if entry.get("hand_number") == table.hand_number][-60:],
             "hands_played": len(self.arena.hand_history),
             "hand_cap": self.config.max_hands,
             "showdown": table.showdown_results,
             "pots": table.pots_snapshot,
-            "reveal_all": god_mode,
-            "god_mode": god_mode,
-            # Result of the hand that just finished (shown during the hold).
-            "hand_result": self._hand_result(last_hand) if last_hand else None,
-            "holding_result": holding,
-            "hold_remaining": round(remaining, 2),
-            "hold_total": round(hold_total, 2),
+            "hand_result": current_result,
+            "active_players": sum(p.in_hand for p in table.players),
+            "seq": self.seq,
+            "hand_over": table.is_hand_over,
+            "chip_leaders": [player.name for player in table.players if player.seated
+                             and player.chips == max((p.chips for p in table.players if p.seated), default=0)],
         }
+        return deepcopy(frame)
+
+    def _public_events(self, events: list[dict], god_mode: bool) -> list[dict]:
+        events = deepcopy(events)
+        if not god_mode:
+            for event in events:
+                if event.get("kind") == HOLE_CARDS_DEALT:
+                    human = self.arena.human_seat
+                    event["players"] = {seat: cards for seat, cards in event.get("players", {}).items()
+                                        if human is not None and str(seat) == str(human)}
+                event.pop("thought", None)
+                event.pop("reasoning", None)
+        return events
+
+    def _public_frame(self, frame: dict, god_mode: bool, *, replay: bool = False) -> dict:
+        frame = deepcopy(frame)
+        public_seats = {entry.get("seat") for entry in frame.get("showdown", [])}
+        human = self.arena.human_seat
+        for player in frame["players"]:
+            if not god_mode and player["seat"] != human and player["seat"] not in public_seats:
+                player["hole_cards"] = None
+        frame["events"] = self._public_events(frame.get("events", []), god_mode)
+        frame.update(god_mode=god_mode, reveal_all=god_mode)
+        if replay:
+            frame.update(is_replay=True, awaiting_human=False, legal=None, turn_token=None,
+                         finished=False, winner=None, holding_result=False,
+                         hold_remaining=0, hold_total=0, hold_hand=None,
+                         thoughts=[], stopped=False, completion_reason=None)
+        return frame
+
+    def snapshot(self, *, replay_after: int | None = None, history_after: int | None = None) -> dict:
+        """Return live state, optionally with replay frames and hand-history deltas.
+
+        Compact action rows are always present. Clients polling incrementally
+        cache frames by action seq and evict below ``replay_first_seq``. A full
+        refresh is required after changing god mode so cached privacy matches.
+
+        ``history_after`` is the last completed hand already cached by the
+        client. Newer hands are sent in full, including the live hand before its
+        first action; completed public records do not change after publication.
+        Evict cached hands below ``history_first_hand`` even on an empty delta.
+        Omit the cursor (or use 0) to retrieve all retained hand narratives.
+        """
+        with self.lock:
+            god_mode = self._god_mode
+            # The worker publishes after complete engine operations. Reading
+            # that frame avoids a half-dealt board or half-awarded chip stacks.
+            frame = self._live_frame if self._thread is not None else self._table_frame(self.arena.table)
+            snapshot = self._public_frame(frame, god_mode)
+            actions = []
+            for stored in self.actions:
+                action = {key: value for key, value in stored.items() if key != "replay"}
+                if not god_mode:
+                    action["thought"] = ""
+                if "replay" in stored and (replay_after is None or stored["seq"] > replay_after):
+                    action["replay"] = self._public_frame(stored["replay"], god_mode, replay=True)
+                actions.append(action)
+            remaining = max(0.0, self._hold_deadline - time.monotonic())
+            last_hand = self.arena.hand_history[-1] if self.arena.hand_history else None
+            replay_seqs = [action["seq"] for action in self.actions if "replay" in action]
+            snapshot.update(
+                awaiting_human=self.awaiting_human,
+                turn_token=(self._human_token or self._turn_token(self.arena.table, self.arena.human_seat))
+                if self.awaiting_human else None,
+                events=self._public_events(self.event_log, god_mode),
+                thoughts=deepcopy(self.thoughts) if god_mode else [],
+                actions=actions, paused=self.paused, finished=self.finished,
+                hands=self._public_hand_history(after=history_after),
+                history_first_hand=self._hands[0]["hand_number"] if self._hands else None,
+                history_truncated=self._history_truncated,
+                stopped=self._stop_requested.is_set(),
+                completion_reason=self.completion_reason,
+                winner=self.winner, error=self.error, hands_played=len(self.arena.hand_history),
+                hand_result=(snapshot["hand_result"] if snapshot["hand_over"] and snapshot["hand_result"]
+                             else self._hand_result(last_hand) if last_hand else snapshot["hand_result"]),
+                holding_result=remaining > 0, hold_remaining=round(remaining, 2),
+                hold_total=round(self.hold_total, 2),
+                hold_hand=self.hold_hand if remaining > 0 else None,
+                replay_first_seq=replay_seqs[0] if replay_seqs else None,
+                replay_last_seq=replay_seqs[-1] if replay_seqs else None,
+            )
+            if not self.awaiting_human:
+                snapshot["legal"] = None
+            return snapshot
 
     @staticmethod
     def _hand_result(record: dict) -> dict:
@@ -1031,6 +1335,15 @@ class GameSession:
             "reached_showdown": bool(by_seat),
             "showdown": list(by_seat.values()),
             "deltas": record.get("deltas") or {},
+            "payouts": [
+                {key: entry[key] for key in ("seat", "name", "amount", "reason", "pot_label", "split")
+                 if key in entry}
+                for entry in record.get("payouts") or [] if isinstance(entry, dict)
+            ],
+            "pots": [
+                {key: entry[key] for key in ("amount", "eligible", "side") if key in entry}
+                for entry in record.get("pots") or [] if isinstance(entry, dict)
+            ],
         }
 
 
@@ -1038,7 +1351,7 @@ def _persona_name(player: Player) -> str:
     if not player.is_ai:
         return "human"
     try:
-        return get_persona(player.persona).name
+        return personas().get(player.persona).name
     except KeyError:
         return player.persona or "ai"
 
@@ -1066,7 +1379,7 @@ def model_label(player: Player, decider) -> str:
 
 
 class SessionManager:
-    """Keeps at most one active session, so the server cannot be made to spin."""
+    """A bounded registry; explicit replacement stops the previous game."""
 
     def __init__(self, max_sessions: int = 4):
         self.sessions: dict[str, GameSession] = {}
@@ -1074,15 +1387,22 @@ class SessionManager:
         self.max_sessions = max_sessions
         self.lock = threading.RLock()
 
-    def create(self, config: SessionConfig) -> GameSession:
+    def create(self, config: SessionConfig, *, replace_session: str | None = None) -> GameSession:
         session = GameSession(config)
         with self.lock:
+            previous = self.sessions.get(replace_session) if replace_session else None
+            if replace_session and previous is None:
+                raise ValueError("unknown replacement session")
+            if previous is not None:
+                previous.stop()
             self.sessions[session.id] = session
             self.order.append(session.id)
             while len(self.order) > self.max_sessions:
                 oldest = self.order.pop(0)
-                self.sessions.pop(oldest, None)
-        session.start()
+                evicted = self.sessions.pop(oldest, None)
+                if evicted is not None:
+                    evicted.stop()
+            session.start()
         return session
 
     def get(self, session_id: str) -> GameSession | None:

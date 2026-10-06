@@ -8,18 +8,20 @@ from __future__ import annotations
 
 import json
 import random
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .ai import AIDecider, ChatTransport, HeuristicTransport, OpenAITransport
+from .ai import AIDecider, ChatTransport, HeuristicTransport, OpenAITransport, public_action_record
 from .config import ArenaConfig
 from .engine import (
     Action,
     Event,
     IllegalAction,
     Player,
+    POT_AWARDED,
     Table,
 )
 from .personas import DEFAULT_PERSONA, Persona, get_persona
@@ -41,6 +43,10 @@ class AISpec:
 
     def persona(self) -> Persona:
         return get_persona(self.persona_key)
+
+
+class ArenaStopped(Exception):
+    """An operator cancelled the session at a decision boundary."""
 
 
 class Arena:
@@ -94,6 +100,7 @@ class Arena:
         self.deciders: dict[int, AIDecider] = {}
         self.hand_history: list[dict] = []
         self.transcript: list[dict] = []
+        self._hand_payouts: list[dict] = []
         self._build_deciders()
 
     # -- setup -------------------------------------------------------------
@@ -169,6 +176,10 @@ class Arena:
         )
 
     # -- pacing hooks ------------------------------------------------------
+    def _check_stopped(self) -> None:
+        if self.control is not None and getattr(self.control, "should_stop", lambda: False)():
+            raise ArenaStopped()
+
     def before_decision(self, table: Table, seat: int) -> None:
         """Called by the game loop before each decision.  No-op by default.
 
@@ -204,15 +215,18 @@ class Arena:
             from .ai import safe_fallback
 
             return safe_fallback(table, seat, table.legal_actions(seat))
+        decider.should_stop = getattr(self.control, "should_stop", lambda: False)
         return decider.decide(table, seat)
 
     # -- one hand ----------------------------------------------------------
     def play_hand(self) -> dict:
+        self._check_stopped()
         summary_before = {
             p.seat: p.chips for p in self.table.players
         }
         table = self.table
         guard = 0
+        self._hand_payouts = []
         table.start_hand()
         # A new hand is a new betting story: every seat starts watching from the
         # beginning of the log, and can see the hands that came before this one.
@@ -228,29 +242,29 @@ class Arena:
                 break
             seat = table.actor
             self.before_decision(table, seat)
+            self._check_stopped()
             action = self.decide(table, seat)
-            applied = None
-            try:
-                applied = table.apply_action(seat, action)
-            except IllegalAction as exc:
-                # The decider should never let this happen; recover safely.
-                legal = table.legal_actions(seat)
-                from .ai import safe_fallback
+            action_guard = getattr(self.control, "action_guard", nullcontext)
+            with action_guard():
+                # A reply from an already-sent model request may arrive after
+                # Stop. Discard it before touching chips or the action log.
+                self._check_stopped()
+                applied = None
+                try:
+                    applied = table.apply_action(seat, action)
+                except IllegalAction as exc:
+                    legal = table.legal_actions(seat)
+                    from .ai import safe_fallback
 
-                fallback = safe_fallback(table, seat, legal)
-                applied = table.apply_action(seat, fallback)
-                table.emit(
-                    "illegal_action_recovered",
-                    seat=seat,
-                    name=table.players[seat].name,
-                    error=str(exc),
-                    fallback=fallback.type.value,
-                )
-            # Record the numbered action *before* flushing, so the events it
-            # produced are tagged with its index and the replay scrubber can
-            # reconstruct the table at any decision.
-            if applied is not None:
-                self.after_action(table, seat, applied, len(self.table.events))
+                    fallback = safe_fallback(table, seat, legal)
+                    applied = table.apply_action(seat, fallback)
+                    table.emit(
+                        "illegal_action_recovered", seat=seat,
+                        name=table.players[seat].name, error=str(exc),
+                        fallback=fallback.type.value,
+                    )
+                if applied is not None:
+                    self.after_action(table, seat, applied, len(self.table.events))
             self._flush()
 
         self._flush()
@@ -265,6 +279,7 @@ class Arena:
 
     def _flush(self) -> None:
         events = self.table.drain_events()
+        self._hand_payouts.extend(dict(event.data) for event in events if event.kind == POT_AWARDED)
         if events and self.on_event is not None:
             self.on_event(self.table, events)
 
@@ -273,19 +288,35 @@ class Arena:
         deltas = {
             p.seat: p.chips - before.get(p.seat, 0) for p in table.players
         }
-        winners = [p.name for p in table.players if deltas.get(p.seat, 0) > 0]
+        # A split pot can return each player exactly their contribution, leaving
+        # every delta at zero. Winning a pot is distinct from net chip profit.
+        payouts = [*self._hand_payouts,
+                   *(dict(event.data) for event in table.events if event.kind == POT_AWARDED)]
+        winners = list(dict.fromkeys(payout["name"] for payout in payouts
+                                    if payout.get("reason") != "uncalled_bet_returned"))
         return {
             "hand": table.hand_number,
             "hand_number": table.hand_number,
             "button": table.players[table.button].name,
+            "small_blind": table.small_blind,
+            "big_blind": table.big_blind,
+            "ante": table.ante,
             "board": [c.code for c in table.board],
             "results": table.showdown_results,
             "showdown": table.showdown_results,
             "pots": table.pots_snapshot,
             "pot": sum(pot.get("amount", 0) for pot in table.pots_snapshot),
+            "payouts": payouts,
             "winners": winners,
             "winner": winners[0] if winners else None,
             "reached_showdown": bool(table.showdown_results),
+            # Public memory supports opponent reads without importing private
+            # decisions or spectator-only fields from player history.
+            "participants": [
+                {"seat": p.seat, "name": p.name}
+                for p in table.players if p.hole_cards
+            ],
+            "action_log": [public_action_record(entry) for entry in table.hand_log],
             "stacks_before": before,
             "stacks_after": {p.seat: p.chips for p in table.players},
             "deltas": deltas,
@@ -297,6 +328,7 @@ class Arena:
         table = self.table
         rounds = 0
         while not table.is_game_over() and rounds < self.config.max_rounds:
+            self._check_stopped()
             rounds += 1
             # Tournament-style clock: escalating blinds and antes are what force
             # a short stack to commit.  Without them a bot can fold every hand
@@ -321,6 +353,7 @@ class Arena:
                     )
                     self._flush()
             self.play_hand()
+            self._check_stopped()
             eliminated = table.eliminate_broke_players()
             if eliminated:
                 self._flush()
@@ -332,9 +365,11 @@ class Arena:
                 self._flush()
             if table.is_game_over():
                 break
-            table.rotate_button()
+            if rounds < self.config.max_rounds:
+                table.rotate_button()
 
-        winner = table.seated[0] if table.seated else None
+        winner = max(table.seated, key=lambda player: player.chips, default=None)
+        completion_reason = "last_player" if table.is_game_over() else "hand_cap"
         if winner is not None:
             table.emit(
                 "game_end",
@@ -342,6 +377,7 @@ class Arena:
                 name=winner.name,
                 chips=winner.chips,
                 hands=len(self.hand_history),
+                reason=completion_reason,
             )
         self._flush()
         self.save_history()
